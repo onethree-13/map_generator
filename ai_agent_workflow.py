@@ -21,7 +21,8 @@ from tabs import (
     DataEditingTab,
     TagManagementTab,
     CoordinateManagementTab,
-    DataExportTab
+    DataExportTab,
+    JSONEditorTab
 )
 
 
@@ -60,16 +61,55 @@ def main():
 
         # 从配置获取默认值
         default_openai_key = get_config("OPENAI_API_KEY", "")
+        default_amap_key = get_config("AMAP_API_KEY", "")
         default_tencent_key = get_config("TENCENT_API_KEY", "")
 
         qwen_api_key = st.text_input(
             "通义千问API密钥", value=default_openai_key, type="password", help="用于图像识别和文本处理")
-        api_key = st.text_input(
-            "腾讯地图API密钥", value=default_tencent_key, type="password", help="用于获取经纬度坐标")
+
+        # 地图服务选择
+        st.subheader("地图服务配置")
+        
+        # 获取可用的地图服务
+        available_services = get_config("MAP_SERVICES", {})
+        service_options = {key: config["name"] for key, config in available_services.items()}
+        
+        # 地图服务选择
+        selected_service = st.selectbox(
+            "选择地图服务",
+            options=list(service_options.keys()),
+            format_func=lambda x: service_options[x],
+            index=0 if get_config("DEFAULT_MAP_SERVICE", "amap") == "amap" else 1,
+            help="选择用于地理编码的地图服务"
+        )
+
+        # 根据选择的服务显示对应的API密钥输入框
+        if selected_service == "amap":
+            map_api_key = st.text_input(
+                "高德地图API密钥", 
+                value=default_amap_key, 
+                type="password", 
+                help="用于获取经纬度坐标（高德地图Web服务API）"
+            )
+        elif selected_service == "tencent":
+            map_api_key = st.text_input(
+                "腾讯地图API密钥", 
+                value=default_tencent_key, 
+                type="password", 
+                help="用于获取经纬度坐标（腾讯位置服务API）"
+            )
 
         # 配置状态检查
-        if not default_openai_key or not default_tencent_key:
-            st.warning("⚠️ 检测到API密钥未配置！")
+        missing_keys = []
+        if not default_openai_key:
+            missing_keys.append("通义千问API密钥")
+        if selected_service == "amap" and not default_amap_key:
+            missing_keys.append("高德地图API密钥")
+        elif selected_service == "tencent" and not default_tencent_key:
+            missing_keys.append("腾讯地图API密钥")
+
+        if missing_keys:
+            st.warning(f"⚠️ 检测到以下API密钥未配置：{', '.join(missing_keys)}")
             st.markdown("""
             **请配置API密钥：**
             1. 复制 `env.example` 为 `.env`
@@ -79,17 +119,36 @@ def main():
             或在上方输入框中直接填入密钥。
             """)
 
-        # 更新配置
-        if st.button("更新配置"):
-            st.session_state.processor.initialize_geo_service(api_key)
-            st.session_state.processor.initialize_openai_client(qwen_api_key)
-            st.success("配置已更新！")
+        # 更新配置按钮
+        if st.button("更新配置", type="primary"):
+            # 初始化地理编码服务
+            if map_api_key:
+                st.session_state.processor.initialize_geo_service(
+                    map_api_key, 
+                    selected_service
+                )
+                st.success(f"✅ {service_options[selected_service]}服务已初始化！")
+            
+            # 初始化OpenAI客户端
+            if qwen_api_key:
+                st.session_state.processor.initialize_openai_client(qwen_api_key)
+                st.success("✅ 通义千问服务已初始化！")
 
-        # 初始化服务
-        if st.session_state.processor.geo_service is None:
-            st.session_state.processor.initialize_geo_service(api_key)
+        # 显示当前地图服务状态
+        if st.session_state.processor.geo_service:
+            service_info = st.session_state.processor.get_current_map_service_info()
+            st.success(f"🗺️ 当前使用：{service_info['service_name']}")
+        else:
+            st.info("🔧 请配置并更新地图服务")
 
-        if st.session_state.processor.openai_client is None:
+        # 自动初始化服务（如果有默认密钥）
+        if st.session_state.processor.geo_service is None and map_api_key:
+            st.session_state.processor.initialize_geo_service(
+                map_api_key, 
+                selected_service
+            )
+
+        if st.session_state.processor.openai_client is None and qwen_api_key:
             st.session_state.processor.initialize_openai_client(qwen_api_key)
 
         # 重置功能
@@ -104,8 +163,8 @@ def main():
         sidebar_components.render_data_status()
 
     # 主界面布局 - 创建标签页
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
-        ["📁 数据提取", "🗺️ 地图信息", "📝 数据编辑", "🏷️ 标签管理", "📍 坐标管理", "📊 数据导出"])
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(
+        ["📁 数据提取", "🗺️ 地图信息", "📝 数据编辑", "🏷️ 标签管理", "📍 坐标管理", "📊 数据导出", "📝 JSON编辑器"])
 
     # 创建标签页实例
     data_extraction_tab = DataExtractionTab(data_manager, st.session_state.processor)
@@ -114,6 +173,7 @@ def main():
     tag_management_tab = TagManagementTab(data_manager, st.session_state.processor)
     coordinate_management_tab = CoordinateManagementTab(data_manager, st.session_state.processor)
     data_export_tab = DataExportTab(data_manager)
+    json_editor_tab = JSONEditorTab(data_manager)
 
     # 渲染各个标签页
     with tab1:
@@ -133,6 +193,9 @@ def main():
 
     with tab6:
         data_export_tab.render()
+
+    with tab7:
+        json_editor_tab.render()
 
     # 页脚
     st.markdown("---")

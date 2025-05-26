@@ -40,10 +40,6 @@ class DataExtractionTab:
         if self.data_manager.has_extracted_text() and "已导入" not in self.data_manager.get_extracted_text():
             self._render_extracted_text()
             self._render_json_generation()
-
-        # 如果是JSON导入模式且已有数据，直接显示数据
-        elif self.data_manager.has_saved_json() and "已导入" in self.data_manager.get_extracted_text():
-            self._render_imported_data_preview()
     
     def _render_image_upload(self):
         """渲染图片上传界面"""
@@ -150,13 +146,9 @@ class DataExtractionTab:
                 self._validate_and_preview_json(json_input)
 
         with col2:
-            st.subheader("📥 导入操作")
             if st.button("✅ 导入JSON数据", type="primary", use_container_width=True, key="import_json"):
                 self._import_json_data(json_input)
-            
-            if st.button("🗑️ 清空输入", use_container_width=True, key="clear_json"):
-                st.session_state['json_input_clear'] = True
-                st.rerun()
+
     
     def _render_extracted_text(self):
         """渲染提取的文字内容"""
@@ -196,13 +188,7 @@ class DataExtractionTab:
 
         with col2:
             if self.data_manager.has_saved_json():
-                st.json(self.data_manager.get_saved_json())
-    
-    def _render_imported_data_preview(self):
-        """渲染导入的数据预览"""
-        st.markdown("---")
-        st.header("📊 导入的数据预览")
-        st.json(self.data_manager.get_saved_json(), expanded=3)
+                st.info("📝 JSON数据已生成！可在'JSON编辑器'标签页查看和编辑完整数据。")
     
     def _extract_text_from_uploaded_file(self, uploaded_file):
         """从上传的文件提取文字"""
@@ -313,57 +299,28 @@ class DataExtractionTab:
     
     def _validate_and_preview_json(self, json_input):
         """验证和预览JSON"""
-        try:
-            parsed_json = json.loads(json_input)
-
-            if "data" in parsed_json:
-                data_count = len(parsed_json["data"])
-                st.success(f"✅ JSON格式正确！检测到 {data_count} 个地点数据")
-
-                if "name" in parsed_json:
-                    st.info("🗺️ 检测到完整地图信息（包含name、description等字段）")
-                else:
-                    st.info("📍 检测到纯数据格式（仅包含data字段）")
-
-                if data_count > 0:
-                    sample_item = parsed_json["data"][0]
-                    fields = list(sample_item.keys())
-                    st.write(f"**数据字段:** {', '.join(fields)}")
-
-                    # 统计有效数据
-                    has_coords = sum(1 for item in parsed_json["data"]
-                                     if item.get("center", {}).get("lat", 0) != 0)
-                    has_names = sum(1 for item in parsed_json["data"]
-                                    if item.get("name", "").strip())
-                    has_addresses = sum(1 for item in parsed_json["data"]
-                                        if item.get("address", "").strip())
-
-                    col_stat1, col_stat2, col_stat3 = st.columns(3)
-                    with col_stat1:
-                        st.metric("有名称", has_names)
-                    with col_stat2:
-                        st.metric("有地址", has_addresses)
-                    with col_stat3:
-                        st.metric("有坐标", has_coords)
-
-            elif isinstance(parsed_json, list):
-                st.warning("⚠️ 检测到数组格式，将自动转换为标准格式")
-                data_count = len(parsed_json)
-                st.info(f"📍 数组包含 {data_count} 个地点数据")
-
-            else:
-                st.error("❌ JSON格式不正确：需要包含'data'字段或为数组格式")
-
-        except json.JSONDecodeError as e:
-            st.error(f"❌ JSON格式错误: {str(e)}")
+        # 使用data_manager的JSON语法验证
+        is_valid, error_msg = self.data_manager.validate_json_syntax(json_input)
+        
+        if not is_valid:
+            st.error(f"❌ {error_msg}")
             st.info("💡 请检查JSON语法是否正确，注意逗号、引号、括号等符号")
-        except Exception as e:
-            st.error(f"❌ 解析错误: {str(e)}")
+            return
+        else:
+            st.success("✅ JSON格式正确！")
+
     
     def _import_json_data(self, json_input):
         """导入JSON数据"""
         if not json_input.strip():
             st.error("❌ 请先输入JSON数据")
+            return
+
+        # 使用data_manager的JSON语法验证
+        is_valid, error_msg = self.data_manager.validate_json_syntax(json_input)
+        
+        if not is_valid:
+            st.error(f"❌ {error_msg}")
             return
 
         try:
@@ -406,8 +363,6 @@ class DataExtractionTab:
             self.data_manager.set_extracted_text(f"已导入 {len(parsed_json['data'])} 个地点的JSON数据")
             st.rerun()
 
-        except json.JSONDecodeError as e:
-            st.error(f"❌ JSON格式错误: {str(e)}")
         except Exception as e:
             st.error(f"❌ 导入失败: {str(e)}")
     

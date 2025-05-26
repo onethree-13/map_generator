@@ -9,6 +9,7 @@ from .tab_data_editing import DataEditingTab
 from .tab_tag_management import TagManagementTab
 from .tab_coordinate_management import CoordinateManagementTab
 from .tab_data_export import DataExportTab
+from .tab_json_editor import JSONEditorTab
 
 __all__ = [
     'DataExtractionTab',
@@ -16,5 +17,6 @@ __all__ = [
     'DataEditingTab',
     'TagManagementTab',
     'CoordinateManagementTab',
-    'DataExportTab'
+    'DataExportTab',
+    'JSONEditorTab'
 ] 

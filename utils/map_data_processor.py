@@ -27,10 +27,25 @@ class MapDataProcessor:
         self.confirmed_data = []
         self.geo_service = None
         self.openai_client = None
+        self.current_map_service = get_config("DEFAULT_MAP_SERVICE", "amap")
 
-    def initialize_geo_service(self, api_key: str):
+    def initialize_geo_service(self, api_key: str, service_type: str = None):
         """初始化地理编码服务"""
-        self.geo_service = create_geocoding_service(api_key)
+        if service_type is None:
+            service_type = self.current_map_service
+        
+        self.current_map_service = service_type
+        self.geo_service = create_geocoding_service(api_key, service_type)
+
+    def get_current_map_service_info(self):
+        """获取当前地图服务信息"""
+        if self.geo_service:
+            return self.geo_service.get_service_info()
+        return {
+            "service_type": self.current_map_service,
+            "service_name": "未初始化",
+            "base_url": ""
+        }
 
     def initialize_openai_client(self, api_key: str):
         """初始化OpenAI客户端"""
@@ -258,17 +273,10 @@ class MapDataProcessor:
 
     def get_coordinates_with_progress(self, progress_callback=None):
         """步骤4: 获取地址的经纬度信息（带进度显示）"""
-        if not self.geo_service or not self.json_data:
-            return
-
-        def progress_wrapper(i, total, address):
-            if progress_callback:
-                progress_callback(f"正在获取坐标 {i+1}/{total}: {address}")
-
-        self.json_data = self.geo_service.update_json_coordinates(
-            self.json_data,
-            progress_callback=progress_wrapper
-        )
+        # 注意：这个方法已经被弃用，现在由tab直接处理批量坐标获取
+        # 保留此方法仅为兼容性
+        if progress_callback:
+            progress_callback("批量坐标获取功能已移至坐标管理页面")
 
     def ai_edit_json_data(self, user_instruction: str):
         """使用AI根据用户指令编辑JSON数据"""

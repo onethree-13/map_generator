@@ -4,34 +4,21 @@ from utils.data_manager import DataManager
 
 class MapInfoTab:
     """地图信息标签页"""
-    
+
     def __init__(self, data_manager: DataManager):
         self.data_manager = data_manager
-    
+
     def render(self):
         """渲染地图信息标签页"""
         st.info("步骤2：地图基本信息设置")
 
-        # AI智能建议功能
-        if self.data_manager.has_saved_json():
-            if st.button("🤖 AI智能建议", type="secondary", use_container_width=True, 
-                        help="基于当前数据智能生成地图信息建议"):
-                self._apply_ai_suggestions()
-
-        st.markdown("---")
-
         # 基本信息部分
         self._render_basic_info()
 
-        # 完整配置预览
-        st.markdown("---")
-        st.subheader("🔍 完整配置预览")
-        with st.expander("查看完整JSON配置", expanded=False):
-            st.json(self.data_manager.get_saved_json())
-    
     def _apply_ai_suggestions(self):
         """应用AI智能建议"""
-        smart_placeholders = self.data_manager.generate_smart_suggestions(use_editing=False)
+        smart_placeholders = self.data_manager.generate_smart_suggestions(
+            use_editing=False)
         saved_json = self.data_manager.get_saved_json()
 
         # 如果当前字段为空，则自动填入建议
@@ -45,14 +32,16 @@ class MapInfoTab:
         self.data_manager.set_saved_json(saved_json)
         st.success("✅ AI建议已应用到空白字段！")
         st.rerun()
-    
+
     def _render_basic_info(self):
         """渲染基本信息部分"""
         st.subheader("📋 基本信息")
+
         col1, col2 = st.columns([2, 1])
 
         # 生成智能placeholder
-        smart_placeholders = self.data_manager.generate_smart_suggestions(use_editing=False)
+        smart_placeholders = self.data_manager.generate_smart_suggestions(
+            use_editing=False)
         saved_json = self.data_manager.get_saved_json()
 
         with col1:
@@ -80,17 +69,22 @@ class MapInfoTab:
                 help="标注数据的来源或提供方"
             )
             saved_json["origin"] = map_origin
-            
+
             # 更新saved_json
             self.data_manager.set_saved_json(saved_json)
 
         with col2:
-            self._render_info_preview(map_name, map_description, map_origin, smart_placeholders)
-    
+            self._render_info_preview(
+                map_name, map_description, map_origin, smart_placeholders)
+
     def _render_info_preview(self, map_name, map_description, map_origin, smart_placeholders):
         """渲染信息预览"""
-        st.subheader("📊 信息预览")
-        
+        # AI智能建议功能
+        if self.data_manager.has_saved_json():
+            if st.button("🤖 AI智能建议", type="secondary",
+                            help="基于当前数据智能生成地图信息建议"):
+                self._apply_ai_suggestions()
+
         if map_name:
             st.success(f"✅ 地图名称: {map_name}")
         else:
@@ -110,5 +104,3 @@ class MapInfoTab:
         else:
             if smart_placeholders["origin"] != "用户收集":
                 st.info(f"💡 AI建议来源: {smart_placeholders['origin']}")
-    
- 
