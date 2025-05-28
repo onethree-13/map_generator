@@ -36,10 +36,9 @@ class DataExtractionTab:
         elif input_mode == "📋 直接导入JSON":
             self._render_json_import()
 
-        # 显示提取的文字内容（只有在非JSON导入模式下才显示）
+        # 显示提取的文字内容和JSON生成（只有在非JSON导入模式下才显示）
         if self.data_manager.has_extracted_text() and "已导入" not in self.data_manager.get_extracted_text():
-            self._render_extracted_text()
-            self._render_json_generation()
+            self._render_content_editing()
     
     def _render_image_upload(self):
         """渲染图片上传界面"""
@@ -149,46 +148,140 @@ class DataExtractionTab:
             if st.button("✅ 导入JSON数据", type="primary", use_container_width=True, key="import_json"):
                 self._import_json_data(json_input)
 
-    
-    def _render_extracted_text(self):
-        """渲染提取的文字内容"""
+    def _render_content_editing(self):
+        """渲染内容编辑界面（包含提取的文字和JSON生成）"""
         st.markdown("---")
-        st.subheader("📄 提取内容")
+        st.header("步骤2: 内容编辑与JSON生成")
 
-        with st.expander("查看完整内容", expanded=False):
-            st.text_area(
-                "提取的文字内容",
-                self.data_manager.get_extracted_text(),
-                height=300,
-                help="AI提取或输入的原始文字内容",
-                disabled=True
-            )
-    
-    def _render_json_generation(self):
-        """渲染JSON结构生成界面"""
-        st.markdown("---")
-        st.header("步骤2: 生成结构化数据")
-
-        st.subheader("🎯 数据生成优化")
-        custom_prompt = st.text_area(
-            "自定义指导提示 (可选)",
-            value="",
-            height=100,
-            placeholder="在这里输入额外的指导要求，例如：\n- 请特别注意识别餐厅的营业时间\n- 优先提取景点的门票信息\n- 重点关注商家的优惠活动信息\n- 请严格按照地址格式整理",
-            help="这些自定义指导将帮助AI更准确地理解和整理您的数据"
-        )
-
-        st.markdown("---")
-
-        col1, col2 = st.columns([1, 2])
+        # 创建两列布局
+        col1, col2 = st.columns([1, 1])
 
         with col1:
-            if st.button("🔄 生成JSON结构", type="primary", use_container_width=True):
-                self._generate_json_structure(custom_prompt)
+            st.subheader("📄 提取的文字内容")
+            
+            # 可编辑的文字内容
+            current_text = self.data_manager.get_extracted_text()
+            edited_text = st.text_area(
+                "编辑提取的文字内容：",
+                value=current_text,
+                height=300,
+                help="您可以编辑提取的文字内容，修改后会影响JSON生成结果",
+                key="extracted_text_editor"
+            )
+            
+            # 如果文字内容被修改，更新到data_manager
+            if edited_text != current_text:
+                if st.button("💾 保存文字修改", key="save_text_changes"):
+                    self.data_manager.set_extracted_text(edited_text)
+                    st.success("✅ 文字内容已保存！")
+                    st.rerun()
 
         with col2:
-            if self.data_manager.has_saved_json():
-                st.info("📝 JSON数据已生成！可在'JSON编辑器'标签页查看和编辑完整数据。")
+            st.subheader("🎯 JSON结构生成")
+            
+            # 自定义指导提示
+            custom_prompt = st.text_area(
+                "自定义指导提示 (可选)",
+                value="",
+                height=100,
+                placeholder="在这里输入额外的指导要求，例如：\n- 请特别注意识别餐厅的营业时间\n- 优先提取景点的门票信息\n- 重点关注商家的优惠活动信息\n- 请严格按照地址格式整理",
+                help="这些自定义指导将帮助AI更准确地理解和整理您的数据"
+            )
+
+            # JSON生成按钮组
+            col_btn1, col_btn2, col_btn3 = st.columns(3)
+
+            with col_btn1:
+                if st.button("🔄 生成JSON结构", type="primary", use_container_width=True, key="generate_json"):
+                    self._execute_json_generation(custom_prompt)
+
+            with col_btn2:
+                if st.button("✅ 应用生成结果", use_container_width=True,
+                            disabled=not self.data_manager.has_pending_edits(),
+                            help="将生成的结果应用到保存版本", key="apply_json"):
+                    self._apply_json_generation()
+
+            with col_btn3:
+                if st.button("↩️ 撤销生成", use_container_width=True,
+                            disabled=not self.data_manager.has_pending_edits(),
+                            help="撤销生成结果，恢复到之前状态", key="undo_json"):
+                    self._undo_json_generation()
+
+        # 显示生成的JSON内容（全宽度）
+        st.markdown("---")
+        st.subheader("📋 生成的JSON结构")
+        
+        # 显示生成状态
+        if self.data_manager.has_pending_edits():
+            st.info("💡 有新生成的数据待确认，请点击'应用生成结果'保存，或点击'撤销生成'取消")
+            # 显示待确认的JSON
+            editing_json = self.data_manager.get_editing_json()
+            if editing_json:
+                json_str = json.dumps(editing_json, ensure_ascii=False, indent=2)
+                st.text_area(
+                    "待确认的JSON结构：",
+                    value=json_str,
+                    height=400,
+                    help="这是AI生成的JSON结构，请确认后点击'应用生成结果'",
+                    disabled=True,
+                    key="pending_json_display"
+                )
+        elif self.data_manager.has_saved_json():
+            st.success("📝 JSON数据已生成并保存！可在其他标签页查看和编辑完整数据。")
+            # 显示已保存的JSON
+            saved_json = self.data_manager.get_saved_json()
+            json_str = json.dumps(saved_json, ensure_ascii=False, indent=2)
+            st.text_area(
+                "已保存的JSON结构：",
+                value=json_str,
+                height=400,
+                help="这是已保存的JSON结构",
+                disabled=True,
+                key="saved_json_display"
+            )
+        else:
+            st.info("💡 点击'生成JSON结构'按钮开始生成结构化数据")
+    
+    def _execute_json_generation(self, custom_prompt):
+        """执行JSON结构生成"""
+        progress_placeholder = st.empty()
+        
+        try:
+            with st.spinner("正在整理数据..."):
+                json_data = self.processor.generate_json_structure(
+                    self.data_manager.get_extracted_text(),
+                    custom_prompt,
+                    progress_placeholder
+                )
+
+            progress_placeholder.empty()
+            if json_data:
+                # 保存到editing_json作为待确认的结果
+                self.data_manager.set_editing_json(json_data)
+                st.success("✅ JSON结构生成成功！请确认结果后点击'应用生成结果'")
+                st.rerun()
+            else:
+                st.error("❌ JSON生成失败，请检查提取的文字内容")
+        except ValueError as e:
+            progress_placeholder.empty()
+            st.error(f"❌ 配置错误: {str(e)}")
+            st.info("💡 请在侧边栏中配置正确的通义千问API密钥，然后点击\"更新配置\"按钮")
+        except Exception as e:
+            progress_placeholder.empty()
+            st.error(f"❌ 处理失败: {str(e)}")
+            st.info("💡 请检查网络连接和API密钥配置")
+    
+    def _apply_json_generation(self):
+        """应用JSON生成结果到保存版本"""
+        self.data_manager.apply_edits()
+        st.success("✅ JSON生成结果已应用到保存版本！")
+        st.rerun()
+    
+    def _undo_json_generation(self):
+        """撤销JSON生成结果"""
+        self.data_manager.discard_edits()
+        st.success("✅ 已撤销JSON生成结果")
+        st.rerun()
     
     def _extract_text_from_uploaded_file(self, uploaded_file):
         """从上传的文件提取文字"""
@@ -241,28 +334,6 @@ class DataExtractionTab:
             progress_placeholder.empty()
             st.error(f"❌ 处理失败: {str(e)}")
             st.info("💡 请检查网络连接和图片链接")
-    
-    def _generate_json_structure(self, custom_prompt):
-        """生成JSON结构"""
-        try:
-            with st.spinner("正在整理数据..."):
-                json_data = self.processor.generate_json_structure(
-                    self.data_manager.get_extracted_text(),
-                    custom_prompt
-                )
-
-            if json_data:
-                self.data_manager.set_saved_json(json_data)
-                st.success("✅ JSON结构生成成功！")
-                st.rerun()
-            else:
-                st.error("❌ JSON生成失败，请检查提取的文字内容")
-        except ValueError as e:
-            st.error(f"❌ 配置错误: {str(e)}")
-            st.info("💡 请在侧边栏中配置正确的通义千问API密钥，然后点击\"更新配置\"按钮")
-        except Exception as e:
-            st.error(f"❌ 处理失败: {str(e)}")
-            st.info("💡 请检查网络连接和API密钥配置")
     
     def _get_json_placeholder(self):
         """获取JSON输入的placeholder文本"""

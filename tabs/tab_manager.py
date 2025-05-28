@@ -203,20 +203,27 @@ class TabManager:
     
     def _validate_editing_data(self) -> Dict[str, Any]:
         """验证数据编辑 Tab 的数据"""
-        editing_json = self.data_manager.get_editing_json()
+        # 检查是否有待保存的编辑
+        if self.data_manager.has_pending_edits():
+            return {"valid": False, "message": "有待保存的编辑，请先应用或撤销编辑"}
         
-        # 使用 DataManager 的验证方法
-        is_valid, error_msg = self.data_manager.validate_json_structure(editing_json)
+        # 验证saved_json的结构
+        saved_json = self.data_manager.get_saved_json()
+        is_valid, error_msg = self.data_manager.validate_json_structure(saved_json)
         
         if not is_valid:
-            return {"valid": False, "message": f"编辑数据格式错误：{error_msg}"}
+            return {"valid": False, "message": f"数据格式错误：{error_msg}"}
         
         return {"valid": True, "message": "数据编辑验证通过"}
     
     def _validate_tag_data(self) -> Dict[str, Any]:
         """验证标签管理 Tab 的数据"""
-        # 检查标签数据的一致性
-        all_tags = self.data_manager.get_all_tags(use_editing=True)
+        # 检查是否有待保存的编辑
+        if self.data_manager.has_pending_edits():
+            return {"valid": False, "message": "有待保存的标签编辑，请先应用或撤销编辑"}
+        
+        # 检查标签数据的一致性（从saved_json读取）
+        all_tags = self.data_manager.get_all_tags(use_editing=False)
         
         # 检查是否有重复标签
         tag_counts = {}
@@ -227,8 +234,9 @@ class TabManager:
     
     def _validate_coordinate_data(self) -> Dict[str, Any]:
         """验证坐标管理 Tab 的数据"""
-        editing_json = self.data_manager.get_editing_json()
-        data_items = editing_json.get("data", [])
+        # 从saved_json读取数据进行验证
+        saved_json = self.data_manager.get_saved_json()
+        data_items = saved_json.get("data", [])
         
         # 检查坐标格式
         for i, item in enumerate(data_items):
@@ -301,29 +309,30 @@ class TabManager:
     
     def _save_map_info_data(self) -> Dict[str, Any]:
         """保存地图信息的数据"""
-        # 地图信息的数据已经自动保存到 saved_json
-        # 同步到 editing_json
-        self.data_manager.copy_saved_to_editing()
-        return {"success": True, "message": "地图信息已保存并同步到编辑数据"}
+        # 地图信息的数据已经直接保存到 saved_json
+        return {"success": True, "message": "地图信息已保存"}
     
     def _save_editing_data(self) -> Dict[str, Any]:
         """保存数据编辑的数据"""
-        # 将编辑中的数据保存到 saved_json
-        self.data_manager.save_editing_to_saved()
-        return {"success": True, "message": "编辑数据已保存"}
+        # 如果有待保存的编辑，应用它们
+        if self.data_manager.has_pending_edits():
+            self.data_manager.apply_edits()
+            return {"success": True, "message": "编辑数据已应用并保存"}
+        else:
+            return {"success": True, "message": "无待保存的编辑数据"}
     
     def _save_tag_data(self) -> Dict[str, Any]:
         """保存标签管理的数据"""
-        # 标签管理的数据已经自动保存到 editing_json
-        # 同步到 saved_json
-        self.data_manager.save_editing_to_saved()
-        return {"success": True, "message": "标签数据已保存"}
+        # 如果有待保存的编辑，应用它们
+        if self.data_manager.has_pending_edits():
+            self.data_manager.apply_edits()
+            return {"success": True, "message": "标签编辑已应用并保存"}
+        else:
+            return {"success": True, "message": "无待保存的标签编辑"}
     
     def _save_coordinate_data(self) -> Dict[str, Any]:
         """保存坐标管理的数据"""
-        # 坐标管理的数据已经自动保存到 editing_json
-        # 同步到 saved_json
-        self.data_manager.save_editing_to_saved()
+        # 坐标管理的数据已经直接保存到 saved_json
         return {"success": True, "message": "坐标数据已保存"}
     
     def _save_export_data(self) -> Dict[str, Any]:
@@ -344,17 +353,13 @@ class TabManager:
             tab_name: Tab 名称
         """
         try:
-            if tab_name == "数据编辑":
-                # 确保编辑数据是最新的
-                self.data_manager.copy_saved_to_editing()
-            elif tab_name == "标签管理":
-                # 确保标签数据是最新的
-                self.data_manager.copy_saved_to_editing()
-            elif tab_name == "坐标管理":
-                # 确保坐标数据是最新的
-                self.data_manager.copy_saved_to_editing()
+            # 在新的逻辑下，大部分Tab都直接从saved_json读取数据
+            # 只有在明确需要编辑时才会使用editing_json
+            # 因此这里不需要特殊的重新加载逻辑
             
-            # 其他 Tab 不需要特殊的重新加载逻辑
+            # 如果有待保存的编辑，给出提示
+            if self.data_manager.has_pending_edits():
+                st.warning(f"⚠️ 切换到 {tab_name} 时发现有待保存的编辑，请注意及时保存或撤销")
             
         except Exception as e:
             st.warning(f"⚠️ 重新加载 {tab_name} 数据时发生错误：{str(e)}")
@@ -417,12 +422,15 @@ class TabManager:
                 # 显示数据状态
                 has_extracted = self.data_manager.has_extracted_text()
                 has_saved = self.data_manager.has_saved_json()
-                has_editing = self.data_manager.has_editing_json()
+                has_pending = self.data_manager.has_pending_edits()
                 
                 st.write("**数据状态：**")
                 st.write(f"- 提取文本: {'✅' if has_extracted else '❌'}")
                 st.write(f"- 保存数据: {'✅' if has_saved else '❌'}")
-                st.write(f"- 编辑数据: {'✅' if has_editing else '❌'}")
+                st.write(f"- 待保存编辑: {'⚠️' if has_pending else '✅'}")
+                
+                if has_pending:
+                    st.warning("有待保存的编辑，请及时处理")
             
             with col2:
                 st.write("**最后验证结果：**")
@@ -460,9 +468,11 @@ class TabManager:
                     st.error(f"❌ {result['message']}")
         
         with col2:
-            if st.button("🔄 同步数据", key="sync_data_btn", help="同步 saved_json 和 editing_json"):
-                self.data_manager.copy_saved_to_editing()
-                st.success("✅ 数据已同步")
+            if st.button("✅ 应用编辑", key="apply_edits_btn", 
+                        disabled=not self.data_manager.has_pending_edits(),
+                        help="应用待保存的编辑到保存版本"):
+                self.data_manager.apply_edits()
+                st.success("✅ 编辑已应用")
         
         with col3:
             if st.button("🧹 验证数据", key="validate_data_btn", help="验证当前 Tab 的数据格式"):

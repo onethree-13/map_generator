@@ -17,19 +17,15 @@ class TagManagementTab:
             st.warning("暂无数据可管理，请先完成数据提取步骤。")
             return
 
-        # 确保editing_json存在
-        if not self.data_manager.has_editing_json():
-            self.data_manager.copy_saved_to_editing()
-
-        data_items = self.data_manager.get_editing_json().get("data", [])
+        # 从saved_json读取数据（权威数据源）
+        data_items = self.data_manager.get_data_items(use_editing=False)
 
         # 数据验证和初始化
         if not self._validate_and_initialize_data(data_items):
             return
 
-        # 从 JSON 数据中收集所有可用标签
-        # 这包括：1) 过滤器中的标签 2) 所有地点数据中的标签
-        all_tags = self.data_manager.get_all_tags(use_editing=True)
+        # 从saved_json收集所有可用标签
+        all_tags = self.data_manager.get_all_tags(use_editing=False)
 
         # 强制刷新标签列表
         self._handle_tag_refresh(all_tags)
@@ -65,11 +61,12 @@ class TagManagementTab:
         """显示标签来源信息"""
         st.markdown("---")
         with st.expander("📊 标签来源信息", expanded=False):
-            editing_json = self.data_manager.get_editing_json()
+            # 从saved_json读取数据
+            saved_json = self.data_manager.get_saved_json()
             
             # 统计过滤器中的标签
             filter_tags = set()
-            filter_data = editing_json.get("filter", {})
+            filter_data = saved_json.get("filter", {})
             for filter_type in ["inclusive", "exclusive"]:
                 for category, tags in filter_data.get(filter_type, {}).items():
                     if isinstance(tags, list):
@@ -77,7 +74,7 @@ class TagManagementTab:
             
             # 统计地点数据中的标签
             data_tags = set()
-            for item in editing_json.get("data", []):
+            for item in saved_json.get("data", []):
                 tags = item.get("tags", [])
                 if isinstance(tags, list):
                     for tag in tags:
@@ -148,12 +145,11 @@ class TagManagementTab:
 
     def _add_new_tag_to_json(self, new_tag: str):
         """将新标签添加到 JSON 数据中"""
-        # 获取当前编辑中的 JSON 数据
-        editing_json = self.data_manager.get_editing_json()
+        # 获取当前的 saved_json 数据
+        saved_json = self.data_manager.get_saved_json()
         
-        # 将新标签添加到过滤器的 inclusive 部分，这样它就会被 get_all_tags 方法识别
-        # 这是一个更好的方式，因为不会影响具体的地点数据
-        filter_data = editing_json.get("filter", {"inclusive": {}, "exclusive": {}})
+        # 将新标签添加到过滤器的 inclusive 部分
+        filter_data = saved_json.get("filter", {"inclusive": {}, "exclusive": {}})
         
         # 确保 filter 结构存在
         if "inclusive" not in filter_data:
@@ -171,10 +167,10 @@ class TagManagementTab:
             filter_data["inclusive"][custom_category].sort()
         
         # 更新过滤器数据
-        editing_json["filter"] = filter_data
+        saved_json["filter"] = filter_data
         
-        # 更新 JSON 数据
-        self.data_manager.set_editing_json(editing_json)
+        # 更新 saved_json 数据
+        self.data_manager.set_saved_json(saved_json)
 
     def _handle_tag_refresh(self, all_tags):
         """处理标签刷新"""
@@ -337,8 +333,8 @@ class TagManagementTab:
 
     def _execute_add_tags(self):
         """执行添加标签操作"""
-        editing_json = self.data_manager.get_editing_json()
-        data_items = editing_json.get("data", [])
+        saved_json = self.data_manager.get_saved_json()
+        data_items = saved_json.get("data", [])
 
         # 为指定项目添加标签
         for index in st.session_state.selected_locations:
@@ -347,7 +343,7 @@ class TagManagementTab:
                 current_tags.update(st.session_state.selected_tags)
                 data_items[index]["tags"] = list(current_tags)
 
-        self.data_manager.set_editing_json(editing_json)
+        self.data_manager.set_saved_json(saved_json)
 
         # 增加表格刷新计数器
         st.session_state.table_refresh_counter = getattr(
@@ -365,8 +361,8 @@ class TagManagementTab:
 
     def _execute_overwrite_tags(self):
         """执行覆写标签操作"""
-        editing_json = self.data_manager.get_editing_json()
-        data_items = editing_json.get("data", [])
+        saved_json = self.data_manager.get_saved_json()
+        data_items = saved_json.get("data", [])
 
         # 为指定项目设置标签（覆写）
         for index in st.session_state.selected_locations:
@@ -374,7 +370,7 @@ class TagManagementTab:
                 data_items[index]["tags"] = list(
                     st.session_state.selected_tags)
 
-        self.data_manager.set_editing_json(editing_json)
+        self.data_manager.set_saved_json(saved_json)
 
         # 增加表格刷新计数器
         st.session_state.table_refresh_counter = getattr(
@@ -391,15 +387,15 @@ class TagManagementTab:
 
     def _execute_clear_tags(self):
         """执行清空标签操作"""
-        editing_json = self.data_manager.get_editing_json()
-        data_items = editing_json.get("data", [])
+        saved_json = self.data_manager.get_saved_json()
+        data_items = saved_json.get("data", [])
 
         # 清空指定项目的标签
         for index in st.session_state.selected_locations:
             if 0 <= index < len(data_items):
                 data_items[index]["tags"] = []
 
-        self.data_manager.set_editing_json(editing_json)
+        self.data_manager.set_saved_json(saved_json)
 
         # 增加表格刷新计数器
         st.session_state.table_refresh_counter = getattr(
@@ -438,25 +434,55 @@ class TagManagementTab:
 
         with col2:
             if st.button("✅ 应用编辑", use_container_width=True,
-                         disabled=not self.data_manager.has_editing_json(),
+                         disabled=not self.data_manager.has_pending_edits(),
                          help="将编辑版本应用到保存版本",
                          key="ai_tag_apply_edit"):
                 self._apply_tag_editing()
 
         with col3:
             if st.button("↩️ 撤销编辑", use_container_width=True,
-                         disabled=not self.data_manager.has_editing_json(),
+                         disabled=not self.data_manager.has_pending_edits(),
                          help="撤销编辑，恢复到保存版本",
                          key="ai_tag_undo_edit"):
                 self._undo_tag_editing()
 
+        # 显示编辑状态
+        if self.data_manager.has_pending_edits():
+            st.info("💡 有AI编辑结果待确认，请点击'应用编辑'保存，或点击'撤销编辑'取消")
+            
+            # 显示编辑前后对比
+            with st.expander("📊 查看编辑前后对比", expanded=False):
+                col_before, col_after = st.columns(2)
+                
+                with col_before:
+                    st.write("**编辑前（保存版本）：**")
+                    saved_stats = self.data_manager.get_data_statistics(use_editing=False)
+                    st.write(f"• 总地点数: {saved_stats['total_locations']}")
+                    st.write(f"• 有标签的地点: {saved_stats['has_tags']}")
+                    
+                with col_after:
+                    st.write("**编辑后（待确认版本）：**")
+                    editing_stats = self.data_manager.get_data_statistics(use_editing=True)
+                    st.write(f"• 总地点数: {editing_stats['total_locations']}")
+                    st.write(f"• 有标签的地点: {editing_stats['has_tags']}")
+                    
+                    # 显示变化
+                    tag_diff = editing_stats['has_tags'] - saved_stats['has_tags']
+                    if tag_diff > 0:
+                        st.success(f"📈 增加了 {tag_diff} 个有标签的地点")
+                    elif tag_diff < 0:
+                        st.warning(f"📉 减少了 {abs(tag_diff)} 个有标签的地点")
+                    else:
+                        st.info("📊 有标签的地点数量无变化")
+
     def _execute_ai_tag_editing(self, ai_instruction):
         """执行AI标签编辑"""
+        progress_placeholder = st.empty()
+        
         try:
             with st.spinner("AI正在处理标签编辑指令..."):
-                # 确保editing_json存在
-                if not self.data_manager.has_editing_json():
-                    self.data_manager.copy_saved_to_editing()
+                # 开始编辑：将saved_json复制到editing_json
+                self.data_manager.start_editing()
 
                 # 构建专门的标签编辑prompt
                 current_data = self.data_manager.get_editing_json()
@@ -471,20 +497,22 @@ class TagManagementTab:
 3. 返回完整的JSON数据结构
 4. 不要添加任何解释，只返回JSON"""
 
-                edited_data = self.processor.ai_edit_json_data(tag_edit_prompt)
+                edited_data = self.processor.ai_edit_json_data(tag_edit_prompt, progress_placeholder)
 
+                progress_placeholder.empty()
                 # 更新数据到editing_json
                 self.data_manager.set_editing_json(edited_data)
 
-                st.success("✅ AI标签编辑完成！已保存到编辑版本")
+                st.success("✅ AI标签编辑完成！已保存到编辑版本，请确认后应用")
                 st.rerun()
 
         except Exception as e:
+            progress_placeholder.empty()
             st.error(f"❌ AI编辑失败: {str(e)}")
 
     def _apply_tag_editing(self):
         """应用标签编辑到保存版本"""
-        self.data_manager.save_editing_to_saved()
+        self.data_manager.apply_edits()
 
         # 增加表格刷新计数器
         st.session_state.table_refresh_counter = getattr(
@@ -499,7 +527,7 @@ class TagManagementTab:
 
     def _undo_tag_editing(self):
         """撤销标签编辑，恢复到保存版本"""
-        self.data_manager.copy_saved_to_editing()
+        self.data_manager.discard_edits()
 
         # 增加表格刷新计数器
         st.session_state.table_refresh_counter = getattr(
@@ -517,8 +545,8 @@ class TagManagementTab:
         st.markdown("---")
         st.markdown("### 📊 标签编辑表格")
 
-        # 重新获取最新的数据项，确保表格显示最新数据
-        current_data_items = self.data_manager.get_editing_json().get("data", [])
+        # 从saved_json获取最新的数据项
+        current_data_items = self.data_manager.get_data_items(use_editing=False)
 
         # 准备表格数据 - 始终使用最新数据
         table_data = []
@@ -562,17 +590,16 @@ class TagManagementTab:
         if st.button("💾 应用表格修改", type="primary", use_container_width=True,
                         key="apply_table_modifications"):
             self._apply_table_modifications(edited_table)
-            self.data_manager.save_editing_to_saved()
 
     def _apply_table_modifications(self, edited_table):
         """应用表格修改"""
         try:
-            # 使用最新的data_items进行修改
-            editing_json = self.data_manager.get_editing_json()
-            latest_data_items = editing_json.get("data", [])
+            # 获取saved_json进行修改
+            saved_json = self.data_manager.get_saved_json()
+            data_items = saved_json.get("data", [])
 
             for i, row in enumerate(edited_table):
-                if i < len(latest_data_items):
+                if i < len(data_items):
                     tags_str = row.get("标签", "")
                     if tags_str.strip():
                         # 分割标签并清理
@@ -580,10 +607,10 @@ class TagManagementTab:
                                 for tag in tags_str.split(",") if tag.strip()]
                     else:
                         tags = []
-                    latest_data_items[i]["tags"] = tags
+                    data_items[i]["tags"] = tags
 
-            # 更新editing_json数据
-            self.data_manager.set_editing_json(editing_json)
+            # 更新saved_json数据
+            self.data_manager.set_saved_json(saved_json)
 
             # 增加表格刷新计数器
             st.session_state.table_refresh_counter = getattr(

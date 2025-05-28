@@ -43,7 +43,18 @@ def clean_tags(tags):
 
 
 class DataManager:
-    """数据管理器，负责管理三个核心数据：extracted_text、saved_json、editing_json"""
+    """数据管理器，负责管理三个核心数据：extracted_text、saved_json、editing_json
+    
+    数据流向：
+    1. extracted_text: 原始提取的文本
+    2. saved_json: 确认过的数据（AI生成或人工编辑的最终版本）
+    3. editing_json: AI编辑中的临时数据（可撤销、可保存到saved_json）
+    
+    核心原则：
+    - saved_json 是数据的权威版本，所有读取操作默认从这里获取
+    - editing_json 仅用于AI编辑过程中的临时存储
+    - 只有明确的编辑操作才会使用 editing_json
+    """
     
     def __init__(self):
         self.init_session_state()
@@ -54,13 +65,17 @@ class DataManager:
         if 'extracted_text' not in st.session_state:
             st.session_state.extracted_text = ""
         
-        # 核心数据2：已保存的JSON数据
+        # 核心数据2：已确认的JSON数据（权威版本）
         if 'saved_json' not in st.session_state:
             st.session_state.saved_json = self._create_empty_json()
         
-        # 核心数据3：正在编辑的JSON数据
+        # 核心数据3：AI编辑中的临时JSON数据
         if 'editing_json' not in st.session_state:
             st.session_state.editing_json = self._create_empty_json()
+        
+        # 编辑状态标记
+        if 'has_pending_edits' not in st.session_state:
+            st.session_state.has_pending_edits = False
     
     def _create_empty_json(self) -> Dict[str, Any]:
         """创建空的JSON结构"""
@@ -157,49 +172,74 @@ class DataManager:
         """清空提取的文本"""
         st.session_state.extracted_text = ""
     
-    # ===== 已保存JSON管理 =====
+    # ===== 已确认JSON管理（权威数据源）=====
     def set_saved_json(self, json_data: Dict[str, Any]):
-        """设置已保存的JSON数据"""
+        """设置已确认的JSON数据"""
         st.session_state.saved_json = self._clean_json_structure(json_data)
+        # 清除编辑状态
+        st.session_state.has_pending_edits = False
     
     def get_saved_json(self) -> Dict[str, Any]:
-        """获取已保存的JSON数据"""
+        """获取已确认的JSON数据"""
         return st.session_state.saved_json
     
     def has_saved_json(self) -> bool:
-        """检查是否有已保存的JSON数据"""
+        """检查是否有已确认的JSON数据"""
         return bool(st.session_state.saved_json.get("data"))
     
     def clear_saved_json(self):
-        """清空已保存的JSON数据"""
+        """清空已确认的JSON数据"""
         st.session_state.saved_json = self._create_empty_json()
+        st.session_state.has_pending_edits = False
     
-    # ===== 编辑中JSON管理 =====
+    # ===== AI编辑中JSON管理（临时数据）=====
     def set_editing_json(self, json_data: Dict[str, Any]):
-        """设置编辑中的JSON数据"""
+        """设置AI编辑中的JSON数据"""
         st.session_state.editing_json = self._clean_json_structure(json_data)
+        st.session_state.has_pending_edits = True
     
     def get_editing_json(self) -> Dict[str, Any]:
-        """获取编辑中的JSON数据"""
+        """获取AI编辑中的JSON数据"""
         return st.session_state.editing_json
     
     def has_editing_json(self) -> bool:
-        """检查是否有编辑中的JSON数据"""
+        """检查是否有AI编辑中的JSON数据"""
         return bool(st.session_state.editing_json.get("data"))
     
     def clear_editing_json(self):
-        """清空编辑中的JSON数据"""
+        """清空AI编辑中的JSON数据"""
         st.session_state.editing_json = self._create_empty_json()
+        st.session_state.has_pending_edits = False
     
-    def copy_saved_to_editing(self):
-        """将已保存的JSON复制到编辑中的JSON"""
+    def has_pending_edits(self) -> bool:
+        """检查是否有待保存的编辑"""
+        return st.session_state.get('has_pending_edits', False)
+    
+    def start_editing(self):
+        """开始编辑：将saved_json复制到editing_json"""
         st.session_state.editing_json = json.loads(json.dumps(st.session_state.saved_json))
+        st.session_state.has_pending_edits = False  # 刚开始编辑时没有变更
+    
+    def apply_edits(self):
+        """应用编辑：将editing_json保存到saved_json"""
+        st.session_state.saved_json = json.loads(json.dumps(st.session_state.editing_json))
+        st.session_state.has_pending_edits = False
+    
+    def discard_edits(self):
+        """丢弃编辑：清除editing_json并重置编辑状态"""
+        st.session_state.editing_json = json.loads(json.dumps(st.session_state.saved_json))
+        st.session_state.has_pending_edits = False
+    
+    # ===== 兼容性方法（保持向后兼容）=====
+    def copy_saved_to_editing(self):
+        """将已保存的JSON复制到编辑中的JSON（兼容性方法）"""
+        self.start_editing()
     
     def save_editing_to_saved(self):
-        """将编辑中的JSON覆盖到已保存的JSON"""
-        st.session_state.saved_json = json.loads(json.dumps(st.session_state.editing_json))
+        """将编辑中的JSON覆盖到已保存的JSON（兼容性方法）"""
+        self.apply_edits()
     
-    # ===== 新增接口：JSON语法检查 =====
+    # ===== JSON语法检查 =====
     def validate_json_syntax(self, json_str: str) -> Tuple[bool, str]:
         """检查JSON语法是否正确
         
@@ -272,15 +312,42 @@ class DataManager:
         except Exception as e:
             return False, f"结构验证错误：{str(e)}"
     
+    # ===== 数据访问接口（默认从saved_json读取）=====
+    def get_data_items(self, use_editing: bool = False) -> List[Dict[str, Any]]:
+        """获取数据项列表
+        
+        Args:
+            use_editing: 是否使用编辑中的数据，默认False（从saved_json读取）
+        """
+        json_data = st.session_state.editing_json if use_editing else st.session_state.saved_json
+        return json_data.get("data", [])
+    
+    def get_map_info(self, use_editing: bool = False) -> Dict[str, Any]:
+        """获取地图基本信息
+        
+        Args:
+            use_editing: 是否使用编辑中的数据，默认False（从saved_json读取）
+        """
+        json_data = st.session_state.editing_json if use_editing else st.session_state.saved_json
+        return {
+            "name": json_data.get("name", ""),
+            "description": json_data.get("description", ""),
+            "origin": json_data.get("origin", ""),
+            "filter": json_data.get("filter", {"inclusive": {}, "exclusive": {}})
+        }
+    
     # ===== 编辑中JSON的操作接口 =====
     def update_editing_basic_info(self, name: str = None, description: str = None, origin: str = None):
         """更新编辑中JSON的基本信息"""
         if name is not None:
             st.session_state.editing_json["name"] = clean_text(name)
+            st.session_state.has_pending_edits = True
         if description is not None:
             st.session_state.editing_json["description"] = clean_text(description)
+            st.session_state.has_pending_edits = True
         if origin is not None:
             st.session_state.editing_json["origin"] = clean_text(origin)
+            st.session_state.has_pending_edits = True
     
     def get_editing_data_items(self) -> List[Dict[str, Any]]:
         """获取编辑中JSON的数据项列表"""
@@ -290,25 +357,30 @@ class DataManager:
         """向编辑中JSON添加数据项"""
         cleaned_item = self._clean_data_item(item)
         st.session_state.editing_json["data"].append(cleaned_item)
+        st.session_state.has_pending_edits = True
     
     def update_editing_data_item(self, index: int, item: Dict[str, Any]):
         """更新编辑中JSON的指定数据项"""
         data_items = st.session_state.editing_json["data"]
         if 0 <= index < len(data_items):
             data_items[index] = self._clean_data_item(item)
+            st.session_state.has_pending_edits = True
     
     def remove_editing_data_item(self, index: int):
         """删除编辑中JSON的指定数据项"""
         data_items = st.session_state.editing_json["data"]
         if 0 <= index < len(data_items):
             data_items.pop(index)
+            st.session_state.has_pending_edits = True
     
     def update_editing_filters(self, inclusive: Dict[str, List[str]] = None, exclusive: Dict[str, List[str]] = None):
         """更新编辑中JSON的过滤器"""
         if inclusive is not None:
             st.session_state.editing_json["filter"]["inclusive"] = inclusive
+            st.session_state.has_pending_edits = True
         if exclusive is not None:
             st.session_state.editing_json["filter"]["exclusive"] = exclusive
+            st.session_state.has_pending_edits = True
     
     # ===== 导出功能（从saved_json导出）=====
     def export_from_saved_json(self, remove_empty: bool = True, remove_zero_coords: bool = False) -> Dict[str, Any]:
@@ -356,9 +428,13 @@ class DataManager:
         result["data"] = cleaned_data
         return result
     
-    # ===== 数据统计和分析 =====
+    # ===== 数据统计和分析（默认从saved_json读取）=====
     def get_data_statistics(self, use_editing: bool = False) -> Dict[str, int]:
-        """获取数据统计信息"""
+        """获取数据统计信息
+        
+        Args:
+            use_editing: 是否使用编辑中的数据，默认False（从saved_json读取）
+        """
         json_data = st.session_state.editing_json if use_editing else st.session_state.saved_json
         data_items = json_data.get("data", [])
         
@@ -396,7 +472,11 @@ class DataManager:
         }
     
     def get_all_tags(self, use_editing: bool = False) -> List[str]:
-        """获取所有标签"""
+        """获取所有标签
+        
+        Args:
+            use_editing: 是否使用编辑中的数据，默认False（从saved_json读取）
+        """
         json_data = st.session_state.editing_json if use_editing else st.session_state.saved_json
         all_tags = set()
         
@@ -417,17 +497,30 @@ class DataManager:
         
         return sorted(list(all_tags))
     
-    # ===== 坐标管理 =====
-    def update_coordinates(self, index: int, lat: float, lng: float, use_editing: bool = True):
-        """更新坐标"""
+    # ===== 坐标管理（默认操作saved_json）=====
+    def update_coordinates(self, index: int, lat: float, lng: float, use_editing: bool = False):
+        """更新坐标
+        
+        Args:
+            index: 数据项索引
+            lat: 纬度
+            lng: 经度
+            use_editing: 是否更新编辑中的数据，默认False（更新saved_json）
+        """
         json_data = st.session_state.editing_json if use_editing else st.session_state.saved_json
         data_items = json_data.get("data", [])
         
         if 0 <= index < len(data_items):
             data_items[index]["center"] = {"lat": lat, "lng": lng}
+            if use_editing:
+                st.session_state.has_pending_edits = True
     
     def get_coordinates_status(self, use_editing: bool = False) -> List[Dict[str, Any]]:
-        """获取坐标状态信息"""
+        """获取坐标状态信息
+        
+        Args:
+            use_editing: 是否使用编辑中的数据，默认False（从saved_json读取）
+        """
         json_data = st.session_state.editing_json if use_editing else st.session_state.saved_json
         coord_stats = []
         
@@ -452,18 +545,25 @@ class DataManager:
         st.session_state.extracted_text = ""
         st.session_state.saved_json = self._create_empty_json()
         st.session_state.editing_json = self._create_empty_json()
+        st.session_state.has_pending_edits = False
     
     def reset_saved_json(self):
         """重置已保存的JSON"""
         st.session_state.saved_json = self._create_empty_json()
+        st.session_state.has_pending_edits = False
     
     def reset_editing_json(self):
         """重置编辑中的JSON"""
         st.session_state.editing_json = self._create_empty_json()
+        st.session_state.has_pending_edits = False
     
-    # ===== 智能建议功能 =====
+    # ===== 智能建议功能（默认从saved_json读取）=====
     def generate_smart_suggestions(self, use_editing: bool = False) -> Dict[str, str]:
-        """基于数据生成智能建议"""
+        """基于数据生成智能建议
+        
+        Args:
+            use_editing: 是否使用编辑中的数据，默认False（从saved_json读取）
+        """
         json_data = st.session_state.editing_json if use_editing else st.session_state.saved_json
         data_items = json_data.get("data", [])
         

@@ -137,7 +137,11 @@ class MapDataProcessor:
             if chunk.choices and chunk.choices[0].delta.content:
                 content = chunk.choices[0].delta.content
                 full_content += content
-                progress_placeholder.text(f"正在提取文字...\n{full_content}")
+                # 只显示最后5行
+                lines = full_content.split('\n')
+                display_lines = lines[-5:] if len(lines) > 5 else lines
+                display_content = '\n'.join(display_lines)
+                progress_placeholder.text(f"正在提取文字...\n{display_content}")
                 time.sleep(0.05)
 
         self.extracted_text = full_content
@@ -176,14 +180,18 @@ class MapDataProcessor:
             if chunk.choices and chunk.choices[0].delta.content:
                 content = chunk.choices[0].delta.content
                 full_content += content
-                progress_placeholder.text(f"正在提取文字...\n{full_content}")
+                # 只显示最后5行
+                lines = full_content.split('\n')
+                display_lines = lines[-5:] if len(lines) > 5 else lines
+                display_content = '\n'.join(display_lines)
+                progress_placeholder.text(f"正在提取文字...\n{display_content}")
                 time.sleep(0.05)
 
         self.extracted_text = full_content
         return full_content
 
-    def generate_json_structure(self, extracted_text, custom_prompt=""):
-        """步骤2: 将提取的文字整理成JSON格式"""
+    def generate_json_structure(self, extracted_text, custom_prompt="", progress_placeholder=None):
+        """步骤2: 将提取的文字整理成JSON格式（支持流式输出）"""
         if not self.openai_client:
             raise ValueError("OpenAI客户端未初始化，请检查通义千问API密钥配置")
 
@@ -211,7 +219,7 @@ class MapDataProcessor:
 3. 只有确实存在的信息才填入对应字段，不存在的属性请不要包含该键值对
 4. 电话号码请保持原格式
 5. 如果有多个地点，请分别列出
-6. tags字段应包含相关的分类标签（如：餐厅、购物、服务等）
+6. 若 custom_prompt 未指定标签，则输出 tags 为空列表
 7. 确保输出有效的JSON格式
 
 提取的文字内容：
@@ -235,13 +243,26 @@ class MapDataProcessor:
 注意：只输出JSON，不要包含其他解释文字。如果无法识别任何有效信息，请输出空的data数组。
 """
                 }
-            ]
+            ],
+            stream=True,
         )
 
+        full_content = ""
+        for chunk in completion:
+            if chunk.choices and chunk.choices[0].delta.content:
+                content = chunk.choices[0].delta.content
+                full_content += content
+                if progress_placeholder:
+                    # 只显示最后5行
+                    lines = full_content.split('\n')
+                    display_lines = lines[-5:] if len(lines) > 5 else lines
+                    display_content = '\n'.join(display_lines)
+                    progress_placeholder.text(f"正在生成JSON结构...\n{display_content}")
+                    time.sleep(0.05)
+
         try:
-            json_text = completion.choices[0].message.content
             # 尝试解析JSON
-            self.json_data = json.loads(json_text)
+            self.json_data = json.loads(full_content)
 
             # 清理JSON数据中的文本
             if self.json_data and 'data' in self.json_data:
@@ -262,7 +283,7 @@ class MapDataProcessor:
             return self.json_data
         except json.JSONDecodeError:
             # 如果解析失败，尝试提取JSON部分
-            json_match = re.search(r'\{.*\}', json_text, re.DOTALL)
+            json_match = re.search(r'\{.*\}', full_content, re.DOTALL)
             if json_match:
                 try:
                     self.json_data = json.loads(json_match.group())
@@ -278,8 +299,8 @@ class MapDataProcessor:
         if progress_callback:
             progress_callback("批量坐标获取功能已移至坐标管理页面")
 
-    def ai_edit_json_data(self, user_instruction: str):
-        """使用AI根据用户指令编辑JSON数据"""
+    def ai_edit_json_data(self, user_instruction: str, progress_placeholder=None):
+        """使用AI根据用户指令编辑JSON数据（支持流式输出）"""
         if not self.openai_client:
             raise ValueError("OpenAI客户端未初始化，请检查通义千问API密钥配置")
         
@@ -313,13 +334,26 @@ class MapDataProcessor:
 
 请根据指令修改数据并返回完整的JSON。"""
                 }
-            ]
+            ],
+            stream=True,
         )
 
+        full_content = ""
+        for chunk in completion:
+            if chunk.choices and chunk.choices[0].delta.content:
+                content = chunk.choices[0].delta.content
+                full_content += content
+                if progress_placeholder:
+                    # 只显示最后5行
+                    lines = full_content.split('\n')
+                    display_lines = lines[-5:] if len(lines) > 5 else lines
+                    display_content = '\n'.join(display_lines)
+                    progress_placeholder.text(f"正在编辑JSON数据...\n{display_content}")
+                    time.sleep(0.05)
+
         try:
-            result_text = completion.choices[0].message.content
             # 尝试解析JSON
-            edited_data = json.loads(result_text)
+            edited_data = json.loads(full_content)
             
             # 验证数据结构
             if "data" not in edited_data:
@@ -346,7 +380,7 @@ class MapDataProcessor:
             
         except json.JSONDecodeError:
             # 如果解析失败，尝试提取JSON部分
-            json_match = re.search(r'\{.*\}', result_text, re.DOTALL)
+            json_match = re.search(r'\{.*\}', full_content, re.DOTALL)
             if json_match:
                 try:
                     edited_data = json.loads(json_match.group())
