@@ -377,20 +377,57 @@ git commit -m "docs: 更新API使用说明"
 - 🍴 [Fork项目](https://github.com/your-username/map_generator/fork)
 - 📢 [关注更新](https://github.com/your-username/map_generator/subscription)
 
-## 📄 许可证
+## 📄 License
 
-本项目采用 [MIT许可证](LICENSE) - 详情请查看LICENSE文件
+本项目采用 MIT License 开源协议。
+
+```
+MIT License
+
+Copyright (c) 2024 Map Generator
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+详细信息请查看 [LICENSE](LICENSE) 文件。
+
+## 🤝 贡献
+
+欢迎提交 Issue 和 Pull Request！
+
+1. Fork 本项目
+2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
+3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
+4. 推送到分支 (`git push origin feature/AmazingFeature`)
+5. 开启 Pull Request
+
+## 📞 联系方式
+
+如有问题或建议，请通过以下方式联系：
+
+- 📧 Email: [your-email@example.com](mailto:your-email@example.com)
+- 🐛 Issues: [GitHub Issues](https://github.com/your-username/map_generator/issues)
+- 💬 Discussions: [GitHub Discussions](https://github.com/your-username/map_generator/discussions)
 
 ---
 
 <div align="center">
-
-### 🗺️ **让地图数据处理变得简单高效**
-
-[![GitHub stars](https://img.shields.io/github/stars/your-username/map_generator.svg?style=social&label=Star)](https://github.com/your-username/map_generator)
-[![GitHub forks](https://img.shields.io/github/forks/your-username/map_generator.svg?style=social&label=Fork)](https://github.com/your-username/map_generator)
-[![GitHub issues](https://img.shields.io/github/issues/your-username/map_generator.svg)](https://github.com/your-username/map_generator/issues)
-
-**[🚀 立即开始](https://github.com/your-username/map_generator)** | **[📖 查看文档](https://github.com/your-username/map_generator/wiki)** | **[💬 加入讨论](https://github.com/your-username/map_generator/discussions)**
-
+  <p>⭐ 如果这个项目对您有帮助，请给我们一个星标！</p>
+  <p>Made with ❤️ by Map Generator Team</p>
 </div> 
