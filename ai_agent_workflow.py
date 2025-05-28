@@ -22,7 +22,8 @@ from tabs import (
     TagManagementTab,
     CoordinateManagementTab,
     DataExportTab,
-    JSONEditorTab
+    JSONEditorTab,
+    TabManager
 )
 
 
@@ -51,6 +52,12 @@ def main():
     # 初始化处理器
     if 'processor' not in st.session_state:
         st.session_state.processor = MapDataProcessor()
+
+    # 初始化 Tab 管理器
+    if 'tab_manager' not in st.session_state:
+        st.session_state.tab_manager = TabManager(data_manager)
+    
+    tab_manager = st.session_state.tab_manager
 
     # 侧边栏配置
     with st.sidebar:
@@ -161,11 +168,33 @@ def main():
 
         # 数据状态展示
         sidebar_components.render_data_status()
+        
+        # Tab 状态信息
+        tab_manager.show_tab_status()
+        
+        # 快速操作
+        tab_manager.show_quick_actions()
 
     # 主界面布局 - 创建标签页
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(
-        ["📁 数据提取", "🗺️ 地图信息", "📝 数据编辑", "🏷️ 标签管理", "📍 坐标管理", "📊 数据导出", "📝 JSON编辑器"])
-
+    tab_names = ["📁 数据提取", "🗺️ 地图信息", "📝 数据编辑", "🏷️ 标签管理", "📍 坐标管理", "📊 数据导出", "📝 JSON编辑器"]
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(tab_names)
+    
+    # 检测当前活跃的 Tab（通过 URL 参数或其他方式）
+    # 注意：Streamlit 的 tabs 不直接支持切换检测，这里我们使用一个变通方法
+    current_tab_index = 0  # 默认第一个 Tab
+    
+    # 根据 session state 确定当前 Tab
+    current_tab_name = tab_manager.get_current_tab()
+    tab_name_mapping = {
+        "数据提取": 0,
+        "地图信息": 1, 
+        "数据编辑": 2,
+        "标签管理": 3,
+        "坐标管理": 4,
+        "数据导出": 5,
+        "JSON编辑器": 6
+    }
+    
     # 创建标签页实例
     data_extraction_tab = DataExtractionTab(data_manager, st.session_state.processor)
     map_info_tab = MapInfoTab(data_manager)
@@ -175,7 +204,8 @@ def main():
     data_export_tab = DataExportTab(data_manager)
     json_editor_tab = JSONEditorTab(data_manager)
 
-    # 渲染各个标签页
+    # 简化的 Tab 渲染逻辑
+    # 只渲染内容，不进行自动切换检测
     with tab1:
         data_extraction_tab.render()
 

@@ -14,6 +14,12 @@ class MapInfoTab:
 
         # 基本信息部分
         self._render_basic_info()
+        
+        # 分隔线
+        st.divider()
+        
+        # Filter 编辑部分
+        self._render_filter_editor()
 
     def _apply_ai_suggestions(self):
         """应用AI智能建议"""
@@ -76,6 +82,164 @@ class MapInfoTab:
         with col2:
             self._render_info_preview(
                 map_name, map_description, map_origin, smart_placeholders)
+
+    def _render_filter_editor(self):
+        """渲染过滤器编辑部分"""
+        st.subheader("🔍 过滤器设置")
+        
+        saved_json = self.data_manager.get_saved_json()
+        filter_data = saved_json.get("filter", {"inclusive": {}, "exclusive": {}})
+        
+        # 显示现有过滤器
+        self._render_existing_filters(filter_data)
+        
+        # 添加新过滤器
+        self._render_add_filter_form()
+
+    def _render_existing_filters(self, filter_data):
+        """渲染现有过滤器列表"""
+        st.write("**现有过滤器：**")
+        
+        has_filters = False
+        
+        # 显示 inclusive 过滤器
+        for filter_name, filter_options in filter_data.get("inclusive", {}).items():
+            has_filters = True
+            self._render_filter_item(filter_name, "inclusive", filter_options)
+        
+        # 显示 exclusive 过滤器
+        for filter_name, filter_options in filter_data.get("exclusive", {}).items():
+            has_filters = True
+            self._render_filter_item(filter_name, "exclusive", filter_options)
+        
+        if not has_filters:
+            st.info("暂无过滤器，请添加新的过滤器。")
+
+    def _render_filter_item(self, filter_name, filter_type, filter_options):
+        """渲染单个过滤器项"""
+        with st.container():
+            col1, col2, col3, col4 = st.columns([2, 1, 3, 1])
+            
+            with col1:
+                st.write(f"**{filter_name}**")
+            
+            with col2:
+                type_color = "🟢" if filter_type == "inclusive" else "🔴"
+                type_text = "包含" if filter_type == "inclusive" else "排除"
+                st.write(f"{type_color} {type_text}")
+            
+            with col3:
+                options_text = ", ".join(filter_options) if isinstance(filter_options, list) else str(filter_options)
+                st.write(f"选项: {options_text}")
+            
+            with col4:
+                if st.button("🗑️", key=f"delete_{filter_type}_{filter_name}", 
+                           help="删除此过滤器"):
+                    self._delete_filter(filter_name, filter_type)
+                    st.rerun()
+
+    def _render_add_filter_form(self):
+        """渲染添加过滤器表单"""
+        st.write("**添加新过滤器：**")
+        
+        with st.form("add_filter_form"):
+            col1, col2 = st.columns([1, 1])
+            
+            with col1:
+                filter_name = st.text_input(
+                    "过滤器名称",
+                    placeholder="例如：类型、区域、价格等",
+                    help="为过滤器设置一个描述性的名称"
+                )
+                
+                filter_type = st.selectbox(
+                    "过滤器类型",
+                    options=["inclusive", "exclusive"],
+                    format_func=lambda x: "包含 (inclusive)" if x == "inclusive" else "排除 (exclusive)",
+                    help="包含：显示匹配的项目；排除：隐藏匹配的项目"
+                )
+            
+            with col2:
+                filter_options = st.text_area(
+                    "过滤器选项",
+                    placeholder="请用逗号分隔多个选项，例如：餐厅,咖啡厅,酒吧",
+                    height=100,
+                    help="输入过滤器的选项值，多个选项用逗号分隔"
+                )
+            
+            # 表单按钮
+            col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 2])
+            
+            with col_btn1:
+                add_button = st.form_submit_button("➕ 新增", type="primary")
+            
+            with col_btn2:
+                save_button = st.form_submit_button("💾 保存", type="secondary")
+            
+            # 处理表单提交
+            if add_button:
+                self._add_filter(filter_name, filter_type, filter_options)
+            
+            if save_button:
+                self._save_filters()
+
+    def _add_filter(self, filter_name, filter_type, filter_options):
+        """添加新过滤器"""
+        if not filter_name.strip():
+            st.error("❌ 请输入过滤器名称")
+            return
+        
+        if not filter_options.strip():
+            st.error("❌ 请输入过滤器选项")
+            return
+        
+        # 解析选项
+        options_list = [option.strip() for option in filter_options.split(",") if option.strip()]
+        
+        if not options_list:
+            st.error("❌ 请输入有效的过滤器选项")
+            return
+        
+        # 获取当前数据
+        saved_json = self.data_manager.get_saved_json()
+        filter_data = saved_json.get("filter", {"inclusive": {}, "exclusive": {}})
+        
+        # 检查是否已存在同名过滤器
+        if (filter_name in filter_data.get("inclusive", {}) or 
+            filter_name in filter_data.get("exclusive", {})):
+            st.error(f"❌ 过滤器 '{filter_name}' 已存在")
+            return
+        
+        # 添加新过滤器
+        if filter_type not in filter_data:
+            filter_data[filter_type] = {}
+        
+        filter_data[filter_type][filter_name] = options_list
+        
+        # 更新数据
+        saved_json["filter"] = filter_data
+        self.data_manager.set_saved_json(saved_json)
+        
+        st.success(f"✅ 成功添加过滤器 '{filter_name}'")
+        st.rerun()
+
+    def _delete_filter(self, filter_name, filter_type):
+        """删除过滤器"""
+        saved_json = self.data_manager.get_saved_json()
+        filter_data = saved_json.get("filter", {"inclusive": {}, "exclusive": {}})
+        
+        if filter_type in filter_data and filter_name in filter_data[filter_type]:
+            del filter_data[filter_type][filter_name]
+            saved_json["filter"] = filter_data
+            self.data_manager.set_saved_json(saved_json)
+            st.success(f"✅ 成功删除过滤器 '{filter_name}'")
+        else:
+            st.error(f"❌ 过滤器 '{filter_name}' 不存在")
+
+    def _save_filters(self):
+        """保存过滤器设置"""
+        st.success("✅ 过滤器设置已保存")
+        st.info("💡 过滤器设置会自动保存到地图数据中")
 
     def _render_info_preview(self, map_name, map_description, map_origin, smart_placeholders):
         """渲染信息预览"""

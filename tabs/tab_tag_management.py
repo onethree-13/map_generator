@@ -27,7 +27,8 @@ class TagManagementTab:
         if not self._validate_and_initialize_data(data_items):
             return
 
-        # 收集所有可用标签
+        # 从 JSON 数据中收集所有可用标签
+        # 这包括：1) 过滤器中的标签 2) 所有地点数据中的标签
         all_tags = self.data_manager.get_all_tags(use_editing=True)
 
         # 强制刷新标签列表
@@ -56,6 +57,67 @@ class TagManagementTab:
 
         # 标签编辑表格
         self._render_tag_editing_table()
+        
+        # 显示标签来源信息
+        self._render_tag_source_info()
+
+    def _render_tag_source_info(self):
+        """显示标签来源信息"""
+        st.markdown("---")
+        with st.expander("📊 标签来源信息", expanded=False):
+            editing_json = self.data_manager.get_editing_json()
+            
+            # 统计过滤器中的标签
+            filter_tags = set()
+            filter_data = editing_json.get("filter", {})
+            for filter_type in ["inclusive", "exclusive"]:
+                for category, tags in filter_data.get(filter_type, {}).items():
+                    if isinstance(tags, list):
+                        filter_tags.update(tags)
+            
+            # 统计地点数据中的标签
+            data_tags = set()
+            for item in editing_json.get("data", []):
+                tags = item.get("tags", [])
+                if isinstance(tags, list):
+                    for tag in tags:
+                        if isinstance(tag, str) and tag.strip():
+                            data_tags.add(tag.strip())
+            
+            # 显示统计信息
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric("过滤器标签", len(filter_tags))
+                if filter_tags:
+                    st.write("**过滤器标签：**")
+                    for tag in sorted(filter_tags):
+                        st.write(f"• {tag}")
+            
+            with col2:
+                st.metric("地点数据标签", len(data_tags))
+                if data_tags:
+                    st.write("**地点数据标签：**")
+                    for tag in sorted(list(data_tags)[:10]):  # 只显示前10个
+                        st.write(f"• {tag}")
+                    if len(data_tags) > 10:
+                        st.write(f"... 还有 {len(data_tags) - 10} 个标签")
+            
+            with col3:
+                total_unique = len(filter_tags.union(data_tags))
+                st.metric("总计唯一标签", total_unique)
+                
+                # 显示重叠情况
+                overlap = filter_tags.intersection(data_tags)
+                if overlap:
+                    st.write(f"**重叠标签 ({len(overlap)})：**")
+                    for tag in sorted(overlap):
+                        st.write(f"• {tag}")
+            
+            st.info("💡 标签来源说明：\n"
+                   "• **过滤器标签**：来自地图信息中的过滤器设置\n"
+                   "• **地点数据标签**：来自各个地点的标签字段\n"
+                   "• **新增标签**：会自动添加到过滤器的'自定义标签'类别中")
 
     def _validate_and_initialize_data(self, data_items):
         """验证和初始化数据"""
@@ -83,6 +145,36 @@ class TagManagementTab:
                     item["tags"] = []
 
         return True
+
+    def _add_new_tag_to_json(self, new_tag: str):
+        """将新标签添加到 JSON 数据中"""
+        # 获取当前编辑中的 JSON 数据
+        editing_json = self.data_manager.get_editing_json()
+        
+        # 将新标签添加到过滤器的 inclusive 部分，这样它就会被 get_all_tags 方法识别
+        # 这是一个更好的方式，因为不会影响具体的地点数据
+        filter_data = editing_json.get("filter", {"inclusive": {}, "exclusive": {}})
+        
+        # 确保 filter 结构存在
+        if "inclusive" not in filter_data:
+            filter_data["inclusive"] = {}
+        if "exclusive" not in filter_data:
+            filter_data["exclusive"] = {}
+        
+        # 将新标签添加到 inclusive 过滤器的 "自定义标签" 类别中
+        custom_category = "自定义标签"
+        if custom_category not in filter_data["inclusive"]:
+            filter_data["inclusive"][custom_category] = []
+        
+        if new_tag not in filter_data["inclusive"][custom_category]:
+            filter_data["inclusive"][custom_category].append(new_tag)
+            filter_data["inclusive"][custom_category].sort()
+        
+        # 更新过滤器数据
+        editing_json["filter"] = filter_data
+        
+        # 更新 JSON 数据
+        self.data_manager.set_editing_json(editing_json)
 
     def _handle_tag_refresh(self, all_tags):
         """处理标签刷新"""
@@ -143,7 +235,11 @@ class TagManagementTab:
                     st.rerun()
 
     def _render_tag_selection(self, all_tags):
-        """渲染标签选择界面"""
+        """渲染标签选择界面
+        
+        Args:
+            all_tags: 从 JSON 数据中获取的所有标签列表（包括过滤器和地点数据中的标签）
+        """
         st.markdown("### 🏷️ 选择标签")
 
         # 标签选择操作
@@ -160,8 +256,8 @@ class TagManagementTab:
                 "新标签", placeholder="输入新标签", key="new_tag_input", label_visibility="collapsed")
             if st.button("➕", key="add_new_tag", disabled=not new_tag.strip()):
                 if new_tag.strip() and new_tag.strip() not in all_tags:
-                    all_tags.append(new_tag.strip())
-                    all_tags.sort()
+                    # 将新标签添加到 JSON 数据中（而不是直接修改 all_tags 列表）
+                    self._add_new_tag_to_json(new_tag.strip())
                     st.session_state.selected_tags.add(new_tag.strip())
                     st.rerun()
 
