@@ -61,7 +61,7 @@ source venv/bin/activate  # Linux/Mac
 venv\Scripts\activate     # Windows
 
 # 安装依赖
-pip install -r requirements.txt
+pip install -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/ 
 ```
 
 ### 2. API密钥配置
@@ -85,7 +85,7 @@ TENCENT_API_KEY="your_tencent_api_key_here"
 
 ```bash
 # 启动Web应用
-streamlit run ai_agent_workflow.py
+streamlit run app.py
 
 # 或使用启动脚本
 python run_app.py
@@ -151,7 +151,7 @@ python run_app.py
 ```
 map_generator/
 ├── 🎯 主应用
-│   ├── ai_agent_workflow.py      # Streamlit主应用 (710行)
+│   ├── app.py                  # Streamlit主应用 (710行)
 │   └── run_app.py               # 启动脚本
 ├── 🧠 AI处理
 │   ├── processor.py             # AI处理器

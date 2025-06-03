@@ -24,7 +24,7 @@ import streamlit as st
 import json
 import time
 from typing import Dict, Any, Optional, Tuple
-from utils.data_manager import DataManager
+from utils.data_manager import DataManager, validate_url
 
 
 class TabManager:
@@ -202,6 +202,27 @@ class TabManager:
             # 检查文本是否包含有效内容
             if len(extracted_text.strip()) < 10:
                 return {"valid": False, "message": "提取的文本内容过短，可能无效"}
+            
+            # 检查文本中是否包含可能的网站链接格式（http/https或www开头）
+            import re
+            url_patterns = [
+                r'https?://[^\s]+',  # http或https开头的URL
+                r'www\.[^\s]+',      # www开头的URL
+                r'[^\s]+\.(com|cn|org|net|edu|gov)[^\s]*'  # 常见域名后缀
+            ]
+            
+            found_urls = []
+            for pattern in url_patterns:
+                urls = re.findall(pattern, extracted_text, re.IGNORECASE)
+                found_urls.extend(urls)
+            
+            if found_urls:
+                # 如果发现URL，提供提示
+                unique_urls = list(set(found_urls))[:3]  # 最多显示3个
+                url_info = ", ".join(unique_urls)
+                if len(found_urls) > 3:
+                    url_info += f" 等{len(found_urls)}个"
+                return {"valid": True, "message": f"数据提取验证通过，发现网站链接：{url_info}"}
         
         return {"valid": True, "message": "数据提取验证通过"}
     
@@ -235,6 +256,20 @@ class TabManager:
         
         if not is_valid:
             return {"valid": False, "message": f"数据格式错误：{error_msg}"}
+        
+        # 验证webLink字段
+        data_items = saved_json.get("data", [])
+        weblink_errors = []
+        
+        for i, item in enumerate(data_items):
+            web_link = item.get("webLink", "")
+            if web_link:
+                is_valid_url, url_error = validate_url(web_link)
+                if not is_valid_url:
+                    weblink_errors.append(f"第{i+1}项的webLink格式错误：{url_error}")
+        
+        if weblink_errors:
+            return {"valid": False, "message": f"发现webLink格式问题：{'; '.join(weblink_errors[:3])}{'...' if len(weblink_errors) > 3 else ''}"}
         
         return {"valid": True, "message": "数据编辑验证通过"}
     
@@ -276,6 +311,13 @@ class TabManager:
                         
                 except (ValueError, TypeError):
                     return {"valid": False, "message": f"第{i+1}项的坐标格式错误"}
+            
+            # 验证webLink字段
+            web_link = item.get("webLink", "")
+            if web_link:
+                is_valid_url, url_error = validate_url(web_link)
+                if not is_valid_url:
+                    return {"valid": False, "message": f"第{i+1}项的webLink格式错误：{url_error}"}
         
         return {"valid": True, "message": "坐标管理验证通过"}
     
@@ -467,6 +509,14 @@ class TabManager:
                 st.write(f"- 总地点数: {stats['total_locations']}")
                 st.write(f"- 有坐标: {stats['has_coordinates']}")
                 st.write(f"- 有地址: {stats['has_address']}")
+                st.write(f"- 有电话: {stats['has_phone']}")
+                st.write(f"- 有网站链接: {stats['has_weblink']}")
+                
+                # 显示webLink字段的详细统计
+                if stats['total_locations'] > 0:
+                    weblink_percentage = (stats['has_weblink'] / stats['total_locations']) * 100
+                    if weblink_percentage > 0:
+                        st.write(f"  🔗 网站链接完整度: {weblink_percentage:.1f}%")
                 
                 # Tab 访问统计
                 if st.session_state.tab_access_count:
@@ -504,6 +554,23 @@ class TabManager:
                     st.success(f"✅ {result['message']}")
                 else:
                     st.error(f"❌ {result['message']}")
+        
+        # webLink相关操作
+        st.subheader("🔗 网站链接操作")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            if st.button("🔍 检查网站链接", key="check_weblinks_btn", help="检查所有webLink字段的有效性"):
+                self._check_all_weblinks()
+        
+        with col2:
+            if st.button("🧹 清理空链接", key="clean_empty_weblinks_btn", help="移除所有空的webLink字段"):
+                self._clean_empty_weblinks()
+        
+        with col3:
+            if st.button("📊 网站链接统计", key="weblink_stats_btn", help="显示webLink字段的详细统计"):
+                self._show_weblink_statistics()
         
         # Tab 切换按钮
         st.subheader("📋 Tab 切换")
@@ -572,4 +639,118 @@ class TabManager:
         self._reload_tab_data(new_tab)
         
         st.success(f"✅ 已切换到 {new_tab}")
-        st.rerun() 
+        st.rerun()
+    
+    def _check_all_weblinks(self):
+        """检查所有webLink字段的有效性"""
+        saved_json = self.data_manager.get_saved_json()
+        data_items = saved_json.get("data", [])
+        
+        if not data_items:
+            st.info("📝 暂无数据可检查")
+            return
+        
+        valid_links = []
+        invalid_links = []
+        empty_links = 0
+        
+        for i, item in enumerate(data_items):
+            web_link = item.get("webLink", "")
+            if not web_link:
+                empty_links += 1
+            else:
+                is_valid, error_msg = validate_url(web_link)
+                if is_valid:
+                    valid_links.append({"index": i+1, "name": item.get("name", "未知"), "url": web_link})
+                else:
+                    invalid_links.append({"index": i+1, "name": item.get("name", "未知"), "url": web_link, "error": error_msg})
+        
+        # 显示检查结果
+        st.write("🔍 **网站链接检查结果：**")
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("✅ 有效链接", len(valid_links))
+        with col2:
+            st.metric("❌ 无效链接", len(invalid_links))
+        with col3:
+            st.metric("⭕ 空链接", empty_links)
+        
+        if invalid_links:
+            st.error("❌ **发现无效链接：**")
+            for link in invalid_links[:5]:  # 最多显示5个
+                st.write(f"• 第{link['index']}项 ({link['name']}): {link['url']} - {link['error']}")
+            if len(invalid_links) > 5:
+                st.write(f"... 还有 {len(invalid_links) - 5} 个无效链接")
+        
+        if valid_links:
+            st.success(f"✅ 发现 {len(valid_links)} 个有效链接")
+    
+    def _clean_empty_weblinks(self):
+        """清理空的webLink字段"""
+        saved_json = self.data_manager.get_saved_json()
+        data_items = saved_json.get("data", [])
+        
+        cleaned_count = 0
+        for item in data_items:
+            if "webLink" in item and not item["webLink"].strip():
+                del item["webLink"]
+                cleaned_count += 1
+        
+        if cleaned_count > 0:
+            self.data_manager.set_saved_json(saved_json)
+            st.success(f"🧹 已清理 {cleaned_count} 个空的网站链接字段")
+        else:
+            st.info("✨ 没有发现空的网站链接字段需要清理")
+    
+    def _show_weblink_statistics(self):
+        """显示webLink字段的详细统计"""
+        saved_json = self.data_manager.get_saved_json()
+        data_items = saved_json.get("data", [])
+        
+        if not data_items:
+            st.info("📝 暂无数据可统计")
+            return
+        
+        total_items = len(data_items)
+        has_weblink_field = sum(1 for item in data_items if "webLink" in item)
+        has_weblink_value = sum(1 for item in data_items if item.get("webLink", "").strip())
+        
+        # 按域名统计
+        domain_stats = {}
+        for item in data_items:
+            web_link = item.get("webLink", "").strip()
+            if web_link:
+                try:
+                    # 简单的域名提取
+                    if "://" in web_link:
+                        domain = web_link.split("://")[1].split("/")[0]
+                    else:
+                        domain = web_link.split("/")[0]
+                    domain_stats[domain] = domain_stats.get(domain, 0) + 1
+                except:
+                    domain_stats["其他"] = domain_stats.get("其他", 0) + 1
+        
+        st.write("📊 **网站链接详细统计：**")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write("**基本统计：**")
+            st.write(f"• 总地点数: {total_items}")
+            st.write(f"• 有webLink字段: {has_weblink_field}")
+            st.write(f"• 有webLink值: {has_weblink_value}")
+            
+            if total_items > 0:
+                completion_rate = (has_weblink_value / total_items) * 100
+                st.write(f"• 完整度: {completion_rate:.1f}%")
+        
+        with col2:
+            if domain_stats:
+                st.write("**域名分布：**")
+                for domain, count in sorted(domain_stats.items(), key=lambda x: x[1], reverse=True)[:5]:
+                    st.write(f"• {domain}: {count} 个")
+                if len(domain_stats) > 5:
+                    st.write(f"• ... 还有 {len(domain_stats) - 5} 个域名")
+            else:
+                st.write("**域名分布：** 暂无数据") 

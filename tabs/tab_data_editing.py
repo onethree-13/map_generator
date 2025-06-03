@@ -22,7 +22,7 @@
 
 import streamlit as st
 import pandas as pd
-from utils.data_manager import DataManager, clean_text
+from utils.data_manager import DataManager, clean_text, clean_url, validate_url
 
 
 class DataEditingTab:
@@ -55,7 +55,7 @@ class DataEditingTab:
         # AI编辑输入框
         user_instruction = st.text_area(
             "请输入编辑指令：",
-            placeholder="例如：\n• 删除所有没有电话号码的地点\n• 将所有地址中的'街道'替换为'路'\n• 为星巴克添加简介：知名国际咖啡连锁品牌\n• 删除第2个地点\n• 添加一个新地点：名称为'测试咖啡厅'，地址为'上海市长宁区测试路123号'",
+            placeholder="例如：\n• 删除所有没有电话号码的地点\n• 将所有地址中的'街道'替换为'路'\n• 为星巴克添加简介：知名国际咖啡连锁品牌\n• 为所有餐厅类地点添加标签：餐饮\n• 删除第2个地点\n• 添加一个新地点：名称为'测试咖啡厅'，地址为'上海市长宁区测试路123号'，标签为'咖啡,饮品'",
             height=120,
             help="用自然语言描述您想要对数据进行的修改"
         )
@@ -96,6 +96,7 @@ class DataEditingTab:
                     st.write(f"• 总地点数: {saved_stats['total_locations']}")
                     st.write(f"• 有地址: {saved_stats['has_address']}")
                     st.write(f"• 有电话: {saved_stats['has_phone']}")
+                    st.write(f"• 有标签: {saved_stats['has_tags']}")
                     
                 with col_after:
                     st.write("**编辑后（待确认版本）：**")
@@ -103,6 +104,7 @@ class DataEditingTab:
                     st.write(f"• 总地点数: {editing_stats['total_locations']}")
                     st.write(f"• 有地址: {editing_stats['has_address']}")
                     st.write(f"• 有电话: {editing_stats['has_phone']}")
+                    st.write(f"• 有标签: {editing_stats['has_tags']}")
                     
                     # 显示变化
                     location_diff = editing_stats['total_locations'] - saved_stats['total_locations']
@@ -112,6 +114,15 @@ class DataEditingTab:
                         st.warning(f"📉 减少了 {abs(location_diff)} 个地点")
                     else:
                         st.info("📊 地点数量无变化")
+                    
+                    # 显示标签变化
+                    tag_diff = editing_stats['has_tags'] - saved_stats['has_tags']
+                    if tag_diff > 0:
+                        st.success(f"🏷️ 增加了 {tag_diff} 个有标签的地点")
+                    elif tag_diff < 0:
+                        st.warning(f"🏷️ 减少了 {abs(tag_diff)} 个有标签的地点")
+                    else:
+                        st.info("🏷️ 标签地点数量无变化")
 
     def _execute_ai_edit(self, user_instruction):
         """执行AI编辑"""
@@ -163,11 +174,17 @@ class DataEditingTab:
         # 准备表格数据
         editable_data = []
         for i, item in enumerate(data_items):
+            # 处理标签：将标签数组转换为逗号分割的字符串
+            tags = item.get('tags', [])
+            tags_str = ", ".join(tags) if tags else ""
+            
             row = {
                 "名称": item.get('name', ''),
                 "地址": item.get('address', ''),
                 "电话": item.get('phone', ''),
                 "网站/公众号": item.get('webName', ''),
+                "网站链接": item.get('webLink', ''),
+                "标签": tags_str,
                 "简介": item.get('intro', '')
             }
             editable_data.append(row)
@@ -179,6 +196,8 @@ class DataEditingTab:
                 "地址": "",
                 "电话": "",
                 "网站/公众号": "",
+                "网站链接": "",
+                "标签": "",
                 "简介": ""
             }]
 
@@ -209,9 +228,21 @@ class DataEditingTab:
                 ),
                 "网站/公众号": st.column_config.TextColumn(
                     "网站/公众号",
-                    help="网站链接或微信公众号",
+                    help="网站名称或微信公众号",
                     max_chars=100,
                     width="medium"
+                ),
+                "网站链接": st.column_config.TextColumn(
+                    "网站链接",
+                    help="网站URL或相关链接",
+                    max_chars=200,
+                    width="medium"
+                ),
+                "标签": st.column_config.TextColumn(
+                    "标签",
+                    help="多个标签用逗号分隔，如：餐厅, 川菜, 网红店",
+                    max_chars=300,
+                    width="large"
                 ),
                 "简介": st.column_config.TextColumn(
                     "简介",
@@ -235,6 +266,7 @@ class DataEditingTab:
         saved_json = self.data_manager.get_saved_json()
         data_items = saved_json.get("data", [])
         updated_data = []
+        validation_errors = []
 
         for i, row in enumerate(edited_df):
             # 清理和验证数据
@@ -242,9 +274,24 @@ class DataEditingTab:
             address = clean_text(str(row.get('地址', '')))
             phone = clean_text(str(row.get('电话', '')))
             web_name = clean_text(str(row.get('网站/公众号', '')))
+            web_link = clean_url(str(row.get('网站链接', '')))
             intro = clean_text(str(row.get('简介', '')))
+            
+            # 处理标签：将逗号分割的字符串转换为标签数组
+            tags_str = str(row.get('标签', '')).strip()
+            if tags_str:
+                # 分割标签并清理每个标签
+                tags = [clean_text(tag) for tag in tags_str.split(",") if clean_text(tag)]
+            else:
+                tags = []
 
-            # 构建数据项，保留原有坐标和标签
+            # 验证webLink
+            if web_link:
+                is_valid_url, url_error = validate_url(web_link)
+                if not is_valid_url:
+                    validation_errors.append(f"第{i+1}行网站链接格式错误：{url_error}")
+
+            # 构建数据项，保留原有坐标
             original_item = data_items[i] if i < len(data_items) else {}
             original_center = original_item.get('center', {"lat": 0.0, "lng": 0.0})
 
@@ -253,8 +300,9 @@ class DataEditingTab:
                 "address": address,
                 "phone": phone,
                 "webName": web_name,
+                "webLink": web_link,
                 "intro": intro,
-                "tags": original_item.get('tags', []),
+                "tags": tags,
                 "center": original_center
             }
 
@@ -262,9 +310,25 @@ class DataEditingTab:
             if item["name"].strip() or item["address"].strip():
                 updated_data.append(item)
 
+        # 如果有验证错误，显示警告但仍然保存
+        if validation_errors:
+            st.warning("⚠️ 发现以下格式问题，已自动修正：")
+            for error in validation_errors:
+                st.write(f"• {error}")
+
         # 直接更新saved_json
         saved_json["data"] = updated_data
         self.data_manager.set_saved_json(saved_json)
 
-        st.success(f"✅ 修改已保存！共保存 {len(updated_data)} 个地点")
+        # 计算标签相关的统计信息
+        tag_count = sum(1 for item in updated_data if item.get("tags"))
+        total_tags = sum(len(item.get("tags", [])) for item in updated_data)
+
+        success_msg = f"✅ 修改已保存！共保存 {len(updated_data)} 个地点"
+        if tag_count > 0:
+            success_msg += f"，其中 {tag_count} 个地点有标签（共 {total_tags} 个标签）"
+        if validation_errors:
+            success_msg += f"，{len(validation_errors)} 个网址已自动修正格式"
+        
+        st.success(success_msg)
         st.rerun()

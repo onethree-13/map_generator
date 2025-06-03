@@ -49,6 +49,44 @@ def clean_text(text):
     return text
 
 
+def clean_url(url):
+    """清理和标准化URL"""
+    if not url or not isinstance(url, str):
+        return ""
+    
+    url = url.strip()
+    if not url:
+        return ""
+    
+    # 移除多余的空格和换行符
+    url = re.sub(r'\s+', '', url)
+    
+    # 如果不是以http://或https://开头，尝试添加https://
+    if url and not re.match(r'^https?://', url):
+        # 检查是否是有效的域名格式
+        if re.match(r'^[a-zA-Z0-9][a-zA-Z0-9\-\.]*[a-zA-Z0-9]\.[a-zA-Z]{2,}', url):
+            url = 'https://' + url
+        # 检查是否是www开头的域名
+        elif url.startswith('www.'):
+            url = 'https://' + url
+    
+    return url
+
+
+def validate_url(url):
+    """验证URL是否有效"""
+    if not url:
+        return True, ""  # 空URL是有效的
+    
+    # 基本URL格式验证
+    url_pattern = r'^https?://[a-zA-Z0-9]([a-zA-Z0-9\-\.]*[a-zA-Z0-9])?\.[a-zA-Z]{2,}([/?].*)?$'
+    
+    if not re.match(url_pattern, url):
+        return False, "URL格式不正确，请确保包含有效的协议(http://或https://)和域名"
+    
+    return True, ""
+
+
 def clean_tags(tags):
     """清理标签列表"""
     if not tags or not isinstance(tags, list):
@@ -119,6 +157,7 @@ class DataManager:
             "address": "",
             "phone": "",
             "webName": "",
+            "webLink": "",
             "intro": "",
             "tags": [],
             "center": {
@@ -131,10 +170,18 @@ class DataManager:
         """清理单个数据项，确保符合规范"""
         cleaned_item = {"name": ""}  # name是必需的
         
-        # 处理字符串字段
+        # 处理字符串字段 - 确保所有字段都存在，即使为空
         for field in ["name", "address", "phone", "webName", "intro"]:
             if field in item and item[field]:
                 cleaned_item[field] = clean_text(str(item[field]))
+            else:
+                cleaned_item[field] = ""  # 确保字段存在
+        
+        # 特殊处理webLink字段 - 确保字段存在
+        if "webLink" in item and item["webLink"]:
+            cleaned_item["webLink"] = clean_url(str(item["webLink"]))
+        else:
+            cleaned_item["webLink"] = ""  # 确保字段存在，即使为空
         
         # 处理标签
         if "tags" in item:
@@ -328,11 +375,56 @@ class DataManager:
                 # 检查tags结构（如果存在）
                 if "tags" in item and not isinstance(item["tags"], list):
                     return False, f"数据项{i+1}的tags必须是数组"
+                
+                # 验证webLink字段（如果存在）
+                if "webLink" in item and item["webLink"]:
+                    is_valid_url, url_error = validate_url(str(item["webLink"]))
+                    if not is_valid_url:
+                        return False, f"数据项{i+1}的webLink无效：{url_error}"
             
             return True, ""
         
         except Exception as e:
             return False, f"结构验证错误：{str(e)}"
+    
+    def validate_data_item(self, item: Dict[str, Any]) -> Tuple[bool, List[str]]:
+        """验证单个数据项的有效性
+        
+        Args:
+            item: 要验证的数据项
+            
+        Returns:
+            Tuple[bool, List[str]]: (是否有效, 错误信息列表)
+        """
+        errors = []
+        
+        # 检查必需字段
+        if not item.get("name", "").strip():
+            errors.append("名称不能为空")
+        
+        # 验证webLink字段
+        web_link = item.get("webLink", "")
+        if web_link:
+            is_valid_url, url_error = validate_url(web_link)
+            if not is_valid_url:
+                errors.append(f"网站链接格式错误：{url_error}")
+        
+        # 验证坐标
+        center = item.get("center", {})
+        if center:
+            try:
+                lat = float(center.get("lat", 0))
+                lng = float(center.get("lng", 0))
+                
+                # 检查坐标范围
+                if not (-90 <= lat <= 90):
+                    errors.append("纬度必须在-90到90之间")
+                if not (-180 <= lng <= 180):
+                    errors.append("经度必须在-180到180之间")
+            except (ValueError, TypeError):
+                errors.append("坐标必须是有效的数字")
+        
+        return len(errors) == 0, errors
     
     # ===== 数据访问接口（默认从saved_json读取）=====
     def get_data_items(self, use_editing: bool = False) -> List[Dict[str, Any]]:
@@ -468,7 +560,8 @@ class DataManager:
                 "has_phone": 0,
                 "has_intro": 0,
                 "has_name": 0,
-                "has_tags": 0
+                "has_tags": 0,
+                "has_weblink": 0
             }
         
         total_locations = len(data_items)
@@ -482,6 +575,7 @@ class DataManager:
         has_phone = sum(1 for item in data_items if item.get("phone", "").strip())
         has_intro = sum(1 for item in data_items if item.get("intro", "").strip())
         has_tags = sum(1 for item in data_items if item.get("tags", []))
+        has_weblink = sum(1 for item in data_items if item.get("webLink", "").strip())
         
         return {
             "total_locations": total_locations,
@@ -490,7 +584,8 @@ class DataManager:
             "has_coordinates": has_coordinates,
             "has_phone": has_phone,
             "has_intro": has_intro,
-            "has_tags": has_tags
+            "has_tags": has_tags,
+            "has_weblink": has_weblink
         }
     
     def get_all_tags(self, use_editing: bool = False) -> List[str]:

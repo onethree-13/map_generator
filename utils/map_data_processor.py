@@ -27,7 +27,7 @@ import re
 from openai import OpenAI
 from .geo_service import create_geocoding_service
 from config import get_config
-from .data_manager import clean_text, clean_tags
+from .data_manager import clean_text, clean_tags, clean_url
 
 
 def create_openai_client(api_key: str):
@@ -254,7 +254,8 @@ class MapDataProcessor:
       "name": "地点或商家名称",
       "address": "具体地址信息", 
       "phone": "电话号码",
-      "webName": "微信公众号或网站名称",
+      "webName": "网站/视频/公众号",
+      "webLink": "网站链接或相关URL",
       "intro": "相关描述或简介信息",
       "tags": ["相关标签", "类别"],
       "center": {{"lat": 0, "lng": 0}}
@@ -297,6 +298,8 @@ class MapDataProcessor:
                         item['phone'] = clean_text(item['phone'])
                     if 'webName' in item:
                         item['webName'] = clean_text(item['webName'])
+                    if 'webLink' in item:
+                        item['webLink'] = clean_url(item['webLink'])
                     if 'intro' in item:
                         item['intro'] = clean_text(item['intro'])
                     if 'tags' in item:
@@ -392,6 +395,8 @@ class MapDataProcessor:
                         item['phone'] = clean_text(item['phone'])
                     if 'webName' in item:
                         item['webName'] = clean_text(item['webName'])
+                    if 'webLink' in item:
+                        item['webLink'] = clean_url(item['webLink'])
                     if 'intro' in item:
                         item['intro'] = clean_text(item['intro'])
                     if 'tags' in item:
@@ -410,4 +415,133 @@ class MapDataProcessor:
                     return edited_data
                 except:
                     pass
-            raise ValueError("AI返回的内容不是有效的JSON格式") 
+            raise ValueError("AI返回的内容不是有效的JSON格式")
+
+    def ai_filter_tags(self, instruction: str, all_tags: list, progress_placeholder=None):
+        """使用AI根据指令智能筛选标签"""
+        if not self.openai_client:
+            # 如果没有AI客户端，回退到简单的关键词匹配
+            return self._fallback_filter_tags(instruction, all_tags)
+        
+        if not all_tags:
+            return []
+        
+        try:
+            # 构建提示词
+            tags_text = ", ".join(all_tags)
+            
+            completion = self.openai_client.chat.completions.create(
+                model="qwen-max-latest",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": """你是一个专业的标签分类助手。用户会给你一个指令和一些标签，你需要根据指令筛选出相关的标签。
+
+要求：
+1. 仔细理解用户的筛选指令
+2. 从给定的标签列表中找出符合条件的标签
+3. 返回结果应该是一个JSON数组，包含筛选出的标签
+4. 如果没有找到符合条件的标签，返回空数组
+5. 只返回JSON数组，不要添加任何解释
+
+示例：
+- 指令："餐厅相关的标签" -> ["中餐", "西餐", "火锅", "快餐"]
+- 指令："购物相关的标签" -> ["商场", "超市", "便利店"]
+"""
+                    },
+                    {
+                        "role": "user",
+                        "content": f"""筛选指令：{instruction}
+
+可选标签列表：{tags_text}
+
+请从上述标签中筛选出符合指令的标签，以JSON数组格式返回。"""
+                    }
+                ],
+                stream=True,
+            )
+
+            full_content = ""
+            for chunk in completion:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    content = chunk.choices[0].delta.content
+                    full_content += content
+                    if progress_placeholder:
+                        progress_placeholder.text(f"AI正在筛选标签...")
+                        time.sleep(0.01)
+
+            try:
+                # 尝试解析JSON
+                filtered_tags = json.loads(full_content)
+                
+                # 验证返回的是列表
+                if isinstance(filtered_tags, list):
+                    # 确保返回的标签都在原始列表中
+                    valid_tags = [tag for tag in filtered_tags if tag in all_tags]
+                    return valid_tags
+                else:
+                    # 如果不是列表，尝试从文本中提取
+                    return self._extract_tags_from_text(full_content, all_tags)
+                    
+            except json.JSONDecodeError:
+                # 如果解析失败，尝试从文本中提取标签
+                return self._extract_tags_from_text(full_content, all_tags)
+                
+        except Exception as e:
+            # AI调用失败时，回退到简单匹配
+            if progress_placeholder:
+                progress_placeholder.text(f"AI调用失败，使用关键词匹配...")
+            return self._fallback_filter_tags(instruction, all_tags)
+
+    def _extract_tags_from_text(self, text: str, all_tags: list):
+        """从AI返回的文本中提取标签"""
+        extracted_tags = []
+        text_lower = text.lower()
+        
+        for tag in all_tags:
+            if tag.lower() in text_lower:
+                extracted_tags.append(tag)
+        
+        return extracted_tags
+
+    def _fallback_filter_tags(self, instruction: str, all_tags: list):
+        """关键词匹配回退方案"""
+        filtered_tags = []
+        instruction_lower = instruction.lower()
+        
+        # 定义关键词映射
+        keyword_mappings = {
+            "餐厅": ["餐", "食", "饭", "厅", "菜", "料理"],
+            "餐饮": ["餐", "食", "饭", "厅", "菜", "料理", "茶", "咖啡", "酒"],
+            "咖啡": ["咖啡", "cafe", "coffee"],
+            "购物": ["购", "商", "店", "市场", "超市", "商场", "商店"],
+            "娱乐": ["娱乐", "游戏", "影院", "KTV", "酒吧", "娱", "乐"],
+            "医疗": ["医", "院", "诊所", "药店", "健康"],
+            "教育": ["学", "校", "教育", "培训", "大学"],
+            "交通": ["地铁", "公交", "车站", "机场", "交通"],
+            "酒店": ["酒店", "旅馆", "宾馆", "住宿"],
+            "银行": ["银行", "ATM", "金融"],
+            "服务": ["服务", "维修", "理发", "美容"]
+        }
+        
+        # 根据指令中的关键词筛选标签
+        for category, keywords in keyword_mappings.items():
+            if category in instruction_lower:
+                for tag in all_tags:
+                    if any(keyword in tag for keyword in keywords):
+                        if tag not in filtered_tags:
+                            filtered_tags.append(tag)
+        
+        # 如果没有匹配到预定义类别，尝试直接关键词匹配
+        if not filtered_tags:
+            # 提取指令中的可能关键词
+            words = instruction_lower.replace("筛选", "").replace("找出", "").replace("显示", "").replace("相关", "").replace("的", "").replace("标签", "").strip()
+            potential_keywords = [word.strip() for word in words.split() if len(word.strip()) > 1]
+            
+            for tag in all_tags:
+                for keyword in potential_keywords:
+                    if keyword in tag.lower():
+                        if tag not in filtered_tags:
+                            filtered_tags.append(tag)
+        
+        return filtered_tags 

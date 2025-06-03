@@ -22,13 +22,15 @@
 
 import streamlit as st
 from utils.data_manager import DataManager
+import json
 
 
 class MapInfoTab:
     """地图信息标签页"""
 
-    def __init__(self, data_manager: DataManager):
+    def __init__(self, data_manager: DataManager, processor=None):
         self.data_manager = data_manager
+        self.processor = processor
 
     def render(self):
         """渲染地图信息标签页"""
@@ -112,11 +114,129 @@ class MapInfoTab:
         saved_json = self.data_manager.get_saved_json()
         filter_data = saved_json.get("filter", {"inclusive": {}, "exclusive": {}})
         
+        # AI标签筛选功能
+        self._render_ai_filter_generation()
+        
+        st.markdown("---")
+        
         # 显示现有过滤器
         self._render_existing_filters(filter_data)
         
         # 添加新过滤器
         self._render_add_filter_form()
+
+    def _render_ai_filter_generation(self):
+        """渲染AI标签筛选功能"""
+        st.subheader("🤖 AI智能标签筛选")
+        
+        # 获取可用的标签数据
+        all_tags = self.data_manager.get_all_tags(use_editing=False)
+        
+        if not all_tags:
+            st.warning("⚠️ 暂无标签数据，无法使用AI筛选标签。请先在数据编辑或标签管理中添加标签。")
+            return
+        
+        # AI指令输入
+        ai_instruction = st.text_area(
+            "请输入标签筛选指令：",
+            placeholder="例如：\n• 筛选所有与餐厅相关的标签\n• 找出购物相关的标签\n• 显示娱乐类标签\n• 筛选包含'咖啡'的标签",
+            height=120,
+            help="用自然语言描述您想要筛选的标签类型",
+            key="ai_filter_instruction"
+        )
+        
+        # 显示可用标签信息
+        with st.expander("📋 查看所有可用标签", expanded=False):
+            st.write(f"**共有 {len(all_tags)} 个标签：**")
+            st.write(", ".join(all_tags))
+        
+        # AI筛选按钮
+        if st.button("🔍 AI筛选标签", type="primary", use_container_width=True,
+                    disabled=not ai_instruction.strip(),
+                    help="使用AI根据指令筛选相关标签"):
+            if ai_instruction.strip():
+                with st.spinner("AI正在分析标签..."):
+                    # 创建进度显示占位符
+                    progress_placeholder = st.empty()
+                    
+                    try:
+                        # 检查是否有processor和AI客户端
+                        if self.processor and hasattr(self.processor, 'openai_client') and self.processor.openai_client:
+                            filtered_tags = self._filter_tags_by_ai_instruction(ai_instruction, all_tags, progress_placeholder)
+                        else:
+                            progress_placeholder.info("💡 未配置AI接口，使用智能关键词匹配...")
+                            filtered_tags = self._fallback_filter_tags(ai_instruction, all_tags)
+                        
+                        progress_placeholder.empty()
+                        
+                        if filtered_tags:
+                            st.success(f"✅ 筛选出 {len(filtered_tags)} 个相关标签：")
+                            st.info(", ".join(filtered_tags))
+                            
+                            # 提供一键添加到过滤器的选项
+                            if st.button("📋 添加到包含过滤器", key="add_to_filter"):
+                                self._add_filter_from_tags("AI筛选结果", "inclusive", filtered_tags)
+                        else:
+                            st.warning("⚠️ 未找到符合条件的标签，请尝试其他筛选条件")
+                            
+                    except Exception as e:
+                        progress_placeholder.empty()
+                        st.error(f"❌ AI筛选失败: {str(e)}")
+                        st.info("💡 正在使用关键词匹配作为备选方案...")
+                        fallback_tags = self._fallback_filter_tags(ai_instruction, all_tags)
+                        if fallback_tags:
+                            st.info(f"🔍 关键词匹配结果: {', '.join(fallback_tags)}")
+    
+    def _filter_tags_by_ai_instruction(self, instruction, all_tags, progress_placeholder=None):
+        """根据AI指令筛选标签"""
+        if self.processor:
+            # 使用真正的AI筛选
+            return self.processor.ai_filter_tags(instruction, all_tags, progress_placeholder)
+        else:
+            # 回退到简单的关键词匹配
+            return self._fallback_filter_tags(instruction, all_tags)
+    
+    def _fallback_filter_tags(self, instruction, all_tags):
+        """关键词匹配回退方案"""
+        filtered_tags = []
+        instruction_lower = instruction.lower()
+        
+        # 定义关键词映射
+        keyword_mappings = {
+            "餐厅": ["餐", "食", "饭", "厅", "菜", "料理"],
+            "餐饮": ["餐", "食", "饭", "厅", "菜", "料理", "茶", "咖啡", "酒"],
+            "咖啡": ["咖啡", "cafe", "coffee"],
+            "购物": ["购", "商", "店", "市场", "超市", "商场", "商店"],
+            "娱乐": ["娱乐", "游戏", "影院", "KTV", "酒吧", "娱", "乐"],
+            "医疗": ["医", "院", "诊所", "药店", "健康"],
+            "教育": ["学", "校", "教育", "培训", "大学"],
+            "交通": ["地铁", "公交", "车站", "机场", "交通"],
+            "酒店": ["酒店", "旅馆", "宾馆", "住宿"],
+            "银行": ["银行", "ATM", "金融"],
+            "服务": ["服务", "维修", "理发", "美容"]
+        }
+        
+        # 根据指令中的关键词筛选标签
+        for category, keywords in keyword_mappings.items():
+            if category in instruction_lower:
+                for tag in all_tags:
+                    if any(keyword in tag for keyword in keywords):
+                        if tag not in filtered_tags:
+                            filtered_tags.append(tag)
+        
+        # 如果没有匹配到预定义类别，尝试直接关键词匹配
+        if not filtered_tags:
+            # 提取指令中的可能关键词
+            words = instruction_lower.replace("筛选", "").replace("找出", "").replace("显示", "").replace("相关", "").replace("的", "").replace("标签", "").strip()
+            potential_keywords = [word.strip() for word in words.split() if len(word.strip()) > 1]
+            
+            for tag in all_tags:
+                for keyword in potential_keywords:
+                    if keyword in tag.lower():
+                        if tag not in filtered_tags:
+                            filtered_tags.append(tag)
+        
+        return filtered_tags
 
     def _render_existing_filters(self, filter_data):
         """渲染现有过滤器列表"""
@@ -290,3 +410,34 @@ class MapInfoTab:
         else:
             if smart_placeholders["origin"] != "用户收集":
                 st.info(f"💡 AI建议来源: {smart_placeholders['origin']}")
+
+    def _add_filter_from_tags(self, filter_name, filter_type, tag_list):
+        """从标签列表添加过滤器"""
+        if not tag_list:
+            st.error("❌ 没有标签可添加")
+            return
+        
+        # 获取当前数据
+        saved_json = self.data_manager.get_saved_json()
+        filter_data = saved_json.get("filter", {"inclusive": {}, "exclusive": {}})
+        
+        # 生成唯一的过滤器名称
+        base_name = filter_name
+        counter = 1
+        while (filter_name in filter_data.get("inclusive", {}) or 
+               filter_name in filter_data.get("exclusive", {})):
+            filter_name = f"{base_name}_{counter}"
+            counter += 1
+        
+        # 添加新过滤器
+        if filter_type not in filter_data:
+            filter_data[filter_type] = {}
+        
+        filter_data[filter_type][filter_name] = tag_list
+        
+        # 更新数据
+        saved_json["filter"] = filter_data
+        self.data_manager.set_saved_json(saved_json)
+        
+        st.success(f"✅ 已将 {len(tag_list)} 个标签添加到过滤器 '{filter_name}'")
+        st.rerun()

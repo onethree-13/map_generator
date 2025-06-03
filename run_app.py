@@ -153,8 +153,8 @@ def check_dependencies(python_exe):
 
 def run_streamlit_app(python_exe):
     """在虚拟环境中启动Streamlit应用"""
-    if not os.path.exists("ai_agent_workflow.py"):
-        print("❌ 找不到主程序文件 ai_agent_workflow.py")
+    if not os.path.exists("app.py"):
+        print("❌ 找不到主程序文件 app.py")
         return False
     
     print("\n🌐 启动AI地图数据提取工具...")
@@ -167,7 +167,7 @@ def run_streamlit_app(python_exe):
     try:
         # 在虚拟环境中运行streamlit
         cmd = [
-            python_exe, "-m", "streamlit", "run", "ai_agent_workflow.py",
+            python_exe, "-m", "streamlit", "run", "app.py",
             "--server.address", "localhost",
             "--server.port", "8501",
             "--server.headless", "true",

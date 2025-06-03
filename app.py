@@ -219,7 +219,7 @@ def main():
     
     # 创建标签页实例
     data_extraction_tab = DataExtractionTab(data_manager, st.session_state.processor)
-    map_info_tab = MapInfoTab(data_manager)
+    map_info_tab = MapInfoTab(data_manager, st.session_state.processor)
     data_editing_tab = DataEditingTab(data_manager, st.session_state.processor)
     tag_management_tab = TagManagementTab(data_manager, st.session_state.processor)
     coordinate_management_tab = CoordinateManagementTab(data_manager, st.session_state.processor)

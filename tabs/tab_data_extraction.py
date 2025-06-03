@@ -374,6 +374,11 @@ class DataExtractionTab:
     {
       "name": "地点名称",
       "address": "地址",
+      "phone": "电话",
+      "webName": "网站/公众号",
+      "webLink": "网站链接",
+      "intro": "简介",
+      "tags": ["标签"],
       "center": {"lat": 0, "lng": 0}
     }
   ]
@@ -385,6 +390,11 @@ class DataExtractionTab:
     {
       "name": "地点名称",
       "address": "地址",
+      "phone": "电话",
+      "webName": "网站/公众号",
+      "webLink": "网站链接",
+      "intro": "简介",
+      "tags": ["标签"],
       "center": {"lat": 0, "lng": 0}
     }
   ]
@@ -451,6 +461,7 @@ class DataExtractionTab:
                 self.data_manager.set_saved_json(basic_json)
                 st.success("✅ 地点数据导入成功！")
                 st.info("💡 如需要，可在'地图信息'标签页设置地图基本信息")
+
 
             # 设置提取的文字为特殊标记
             self.data_manager.set_extracted_text(f"已导入 {len(parsed_json['data'])} 个地点的JSON数据")

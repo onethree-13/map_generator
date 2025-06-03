@@ -51,6 +51,9 @@ class JSONEditorTab:
         """渲染JSON编辑器"""
         st.subheader("📝 JSON数据编辑器")
         
+        # 显示数据统计信息
+        self._show_data_statistics(current_json)
+        
         # 创建两列布局
         col1, col2 = st.columns([3, 1])
         
@@ -91,6 +94,12 @@ class JSONEditorTab:
                 is_valid, error_msg = self._validate_json(edited_json_str)
                 if is_valid:
                     st.success("✅ JSON格式正确")
+                    # 显示验证后的统计
+                    try:
+                        parsed_data = json.loads(edited_json_str)
+                        self._show_validation_statistics(parsed_data)
+                    except:
+                        pass
                 else:
                     st.error(f"❌ {error_msg}")
             
@@ -105,7 +114,69 @@ class JSONEditorTab:
             if st.button("💾 保存修改", type="primary", use_container_width=True):
                 self._save_json(edited_json_str)
 
-    
+    def _show_data_statistics(self, json_data: Dict[str, Any]):
+        """显示数据统计信息"""
+        data_items = json_data.get("data", [])
+        if not data_items:
+            return
+        
+        st.info("📊 **当前数据统计**")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            total = len(data_items)
+            has_name = sum(1 for item in data_items if item.get("name", "").strip())
+            st.metric("📍 总地点", total)
+            st.metric("📝 有名称", has_name)
+        
+        with col2:
+            has_address = sum(1 for item in data_items if item.get("address", "").strip())
+            has_phone = sum(1 for item in data_items if item.get("phone", "").strip())
+            st.metric("🏠 有地址", has_address)
+            st.metric("📞 有电话", has_phone)
+        
+        with col3:
+            has_webname = sum(1 for item in data_items if item.get("webName", "").strip())
+            has_weblink = sum(1 for item in data_items if item.get("webLink", "").strip())
+            st.metric("🌐 有网站名", has_webname)
+            st.metric("🔗 有网站链接", has_weblink)
+        
+        with col4:
+            has_intro = sum(1 for item in data_items if item.get("intro", "").strip())
+            has_coords = sum(1 for item in data_items 
+                           if item.get("center", {}).get("lat", 0) != 0 and 
+                              item.get("center", {}).get("lng", 0) != 0)
+            st.metric("📖 有简介", has_intro)
+            st.metric("📍 有坐标", has_coords)
+
+    def _show_validation_statistics(self, json_data: Dict[str, Any]):
+        """显示验证后的统计信息"""
+        st.success("🔍 **验证统计：**")
+        data_items = json_data.get("data", [])
+        
+        # 检查webLink字段的完整性
+        weblink_stats = []
+        for i, item in enumerate(data_items):
+            has_weblink_field = "webLink" in item
+            weblink_value = item.get("webLink", "")
+            weblink_stats.append({
+                "序号": i + 1,
+                "有webLink字段": "✅" if has_weblink_field else "❌",
+                "webLink值": weblink_value if weblink_value else "(空)"
+            })
+        
+        if len(weblink_stats) <= 5:
+            st.write("**webLink字段检查：**")
+            for stat in weblink_stats:
+                st.write(f"地点{stat['序号']}: {stat['有webLink字段']} | 值: {stat['webLink值']}")
+        else:
+            missing_weblink = sum(1 for item in data_items if "webLink" not in item)
+            empty_weblink = sum(1 for item in data_items if "webLink" in item and not item["webLink"].strip())
+            valid_weblink = sum(1 for item in data_items if item.get("webLink", "").strip())
+            
+            st.write(f"**webLink字段统计：** 缺失 {missing_weblink} | 空值 {empty_weblink} | 有效 {valid_weblink}")
+
     def _validate_json(self, json_str: str) -> tuple[bool, Optional[str]]:
         """验证JSON格式和数据结构"""
         # 首先验证JSON语法
@@ -136,8 +207,17 @@ class JSONEditorTab:
             return
         
         try:
+            # 获取保存前的数据统计
+            old_data = self.data_manager.get_saved_json()
+            old_weblink_count = sum(1 for item in old_data.get("data", []) 
+                                  if item.get("webLink", "").strip())
+            
             # 解析JSON
             parsed_data = json.loads(json_str)
+            
+            # 获取保存后的数据统计
+            new_weblink_count = sum(1 for item in parsed_data.get("data", []) 
+                                  if item.get("webLink", "").strip())
             
             # 保存数据
             self.data_manager.set_saved_json(parsed_data)
@@ -147,6 +227,16 @@ class JSONEditorTab:
             
             # 显示保存的数据统计
             data_count = len(parsed_data.get("data", []))
+            
+            # 显示webLink字段的变化
+            if new_weblink_count != old_weblink_count:
+                if new_weblink_count > old_weblink_count:
+                    st.success(f"🔗 webLink字段: {old_weblink_count} → {new_weblink_count} (+{new_weblink_count - old_weblink_count})")
+                elif new_weblink_count < old_weblink_count:
+                    st.warning(f"🔗 webLink字段: {old_weblink_count} → {new_weblink_count} (-{old_weblink_count - new_weblink_count})")
+            else:
+                st.info(f"🔗 webLink字段数量保持不变: {new_weblink_count}")
+            
             st.balloons()  # 添加庆祝动画
             st.success(f"🎉 成功保存 {data_count} 个地点的数据！")
             

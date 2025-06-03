@@ -14,7 +14,7 @@
 
 #### 1. 根目录文件
 - [x] `LICENSE` - MIT License 完整文本
-- [x] `ai_agent_workflow.py` - 主应用文件
+- [x] `app.py` - 主应用文件
 - [x] `config.py` - 配置管理
 - [x] `run_app.py` - 启动脚本
 
